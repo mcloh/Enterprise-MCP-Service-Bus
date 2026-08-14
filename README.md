@@ -2,8 +2,7 @@
 ## Reference Architecture para acesso agêntico governado por Client-Bound Entitlements
 
 **Status:** Working Draft v0.1  
-**Data:** 14 de agosto de 2026  
-**Formato:** Markdown + Mermaid  
+**Publicação:** 14 de agosto de 2026  
 **Escopo:** Arquitetura corporativa para expor capacidades empresariais a agentes por meio de MCP, com um MCP Gateway atuando como Policy Enforcement Point (PEP) e com o MCP Client definindo o limite máximo de privilégio.
 
 ---
