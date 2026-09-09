@@ -1,9 +1,23 @@
 # Enterprise MCP Service Bus
 ## Reference Architecture para acesso agêntico governado por Client-Bound Entitlements
 
-**Status:** Working Draft v0.1  
-**Publicação:** 14 de agosto de 2026  
-**Escopo:** Arquitetura corporativa para expor capacidades empresariais a agentes por meio de MCP, com um MCP Gateway atuando como Policy Enforcement Point (PEP) e com o MCP Client definindo o limite máximo de privilégio.
+**Status:** Working Draft v0.2  
+**Publicação:** 3 de setembro de 2026  
+**Escopo:** Arquitetura corporativa para publicar, descobrir, personalizar, orquestrar e executar capacidades empresariais por meio de MCP, com um MCP Gateway atuando como Policy Enforcement Point (PEP), o MCP Client definindo o limite máximo de privilégio e o Service Orchestrator calculando a Next Best Action (NBA) dentro desse limite.
+
+## Reference implementation
+
+A implementação executável desta arquitetura está em [`RI/`](RI/README.md), com gateway MCP, PEP/PDP, OPA, Keycloak, serviços de exemplo, testes adversariais e ambiente Docker Compose.
+
+### Novidades da v0.2
+
+- governança de publicação/subscrição de capabilities por service owners e pipelines;
+- Entitlement Manager como autoridade de cardápios MCP personalizados;
+- Profile Intelligence com clusterização genérica, substituível e sem taxonomia proprietária;
+- Offering Filter para intersectar catálogo, entitlement, perfil, consentimento e contexto;
+- Service Orchestrator responsável pelo cálculo da NBA;
+- Agent Runtime para dispatch, sessão, canais e handoff;
+- rastreabilidade ponta a ponta entre perfil, entitlement, decisão, política, execução e outcome.
 
 ---
 
@@ -19,6 +33,43 @@ O desenho tem quatro ideias centrais:
 2. **O MCP Client é o security principal que define o privilégio máximo.** A identidade usada para autorização deve vir de credenciais autenticadas do client/workload, nunca de informações declaradas pelo agente ou pelo prompt.
 3. **O catálogo visível ao agente é uma projeção do entitlement do client.** Um `tools/list` deve devolver somente as tools permitidas àquele client.
 4. **Informações controladas pelo agente podem reduzir acesso, mas nunca ampliá-lo.** Contexto, usuário, estado da conversa, RAG, resultados de tools e decisões do LLM não podem elevar o conjunto máximo de capabilities estabelecido para o MCP Client.
+
+A arquitetura ampliada adiciona três ideias operacionais ao núcleo de segurança:
+
+5. **O Enterprise MCP Fabric é o eixo de publicação e subscrição de capabilities.** Service owners publicam produtos, serviços, benefícios, campanhas e operações uma vez; consumidores autorizados os descobrem e reutilizam por contratos governados.
+6. **O Entitlement Manager produz cardápios MCP personalizados.** Ele cruza identidade autenticada, perfil de segurança do client/workload, políticas, risco e contexto para produzir o conjunto máximo e a visão efetiva de capabilities.
+7. **O Service Orchestrator calcula a NBA.** Ele recebe contexto, identidade e limites derivados de perfil, entitlement e ofertas filtradas; combina estado de jornada, decisioning, regras e guardrails; e despacha a ação selecionada para agentes e canais.
+
+Essas responsabilidades formam um ciclo governado, sem transferir autorização para a camada probabilística:
+
+```text
+service publication -> global catalog -> maximum entitlement -> filtered offerings
+        -> decision context -> NBA orchestration -> agent/channel execution
+        -> telemetry and traceability -> policy, catalog and model improvement
+```
+
+O contrato entre personalização e orquestração pode ser resumido como:
+
+```text
+DecisionContext = (
+  ProfileView,
+  AuthenticatedIdentity,
+  EntitlementLimits,
+  FilteredOfferings,
+  RuntimeContext
+)
+
+NBA = Orchestrator(
+  DecisionContext,
+  JourneyState,
+  DecisioningModel,
+  Rules,
+  Guardrails,
+  Memory
+)
+```
+
+`ProfileView` é produzido por um modelo **genérico e substituível** de segmentação ou clusterização, baseado em atributos de perfil, sinais comportamentais e contexto de jornada definidos pela organização. A arquitetura não pressupõe taxonomias, nomenclaturas de segmentos ou métodos proprietários de uma empresa específica.
 
 A propriedade de segurança central pode ser expressa como:
 
@@ -174,6 +225,76 @@ Em um sistema tradicional, um endpoint não listado em uma UI ainda pode ser con
 - uma medida de redução de contexto;
 - uma medida de melhoria de tool selection;
 - uma forma de governar capacidades corporativas.
+
+### 3.3 Arquitetura de referência ampliada
+
+O E-MCP-BUS continua sendo a fronteira determinística e o barramento de capabilities. Ao seu redor, a arquitetura ampliada organiza quatro responsabilidades adicionais: oferta, personalização governada, orquestração e execução omnicanal.
+
+```mermaid
+flowchart LR
+    subgraph Supply["OFERTA E GOVERNANÇA DE SERVIÇOS"]
+        Owners["Service owners"]
+        Pipeline["Publishing pipeline<br/>schema • owner • risk • policy • version"]
+        Registry["Global Capability Registry"]
+        Owners --> Pipeline --> Registry
+    end
+
+    subgraph Personalization["PERSONALIZAÇÃO GOVERNADA"]
+        Signals["Atributos de perfil<br/>comportamento • jornada"]
+        Profiles["Profile Intelligence<br/>segmentação / clusterização genérica"]
+        Entitlements["Entitlement Manager<br/>maximum entitlement"]
+        Filter["Offering Filter<br/>capabilities relevantes e elegíveis"]
+        Consent["Consentimento declarado<br/>canal • contexto de runtime"]
+        DecisionContext["Decision Context<br/>context + identity + limits"]
+        Signals --> Profiles --> DecisionContext
+        Entitlements --> Filter --> DecisionContext
+        Consent --> Filter
+        Consent --> DecisionContext
+    end
+
+    subgraph Orchestration["ORQUESTRAÇÃO DE JORNADAS"]
+        Orchestrator["Journey & Agent Orchestrator<br/>state • objective • NBA function"]
+        Decisioning["Decisioning model<br/>rules • guardrails"]
+        Memory["State • memory<br/>telemetry • traceability"]
+        Decisioning --> Orchestrator
+        Memory <--> Orchestrator
+        DecisionContext --> Orchestrator
+    end
+
+    subgraph Runtime["AGENTES E CANAIS"]
+        AgentRuntime["Agent Runtime<br/>context • session • handoff"]
+        Conversational["Conversational<br/>app • web • messaging • voice"]
+        Proactive["Proactive<br/>push • email • SMS"]
+        Media["Media and expansion<br/>campaigns • ads • new agents"]
+        AgentRuntime --> Conversational
+        AgentRuntime --> Proactive
+        AgentRuntime --> Media
+    end
+
+    subgraph Bus["ENTERPRISE MCP SERVICE BUS"]
+        Client["MCP Client<br/>workload identity"]
+        Gateway["MCP Gateway / PEP<br/>filtered discovery • enforcement"]
+        PDP["PDP / Policy Engine<br/>entitlement • transaction"]
+        Fabric["Enterprise MCP Fabric<br/>publish • subscribe • route • mediate • resolve"]
+        Client --> Gateway
+        Gateway <--> PDP
+        Gateway --> Fabric
+    end
+
+    Registry --> Fabric
+    Registry --> Filter
+    PDP <--> Entitlements
+    Orchestrator -->|"NBA + agent dispatch"| AgentRuntime
+    Orchestrator --> Client
+    Fabric --> Systems["APIs • ESB • service mesh • functions • SaaS • data"]
+```
+
+O diagrama apresenta duas cadeias complementares:
+
+- **supply chain de capabilities:** service owner -> publishing pipeline -> registry -> fabric;
+- **decision chain:** perfil + entitlement + ofertas filtradas -> decision context -> NBA -> agent/channel execution.
+
+O ponto de união é o contrato MCP governado. O Orchestrator consome apenas capabilities visíveis e executáveis para o MCP Client autenticado; o Gateway reautoriza cada chamada, mesmo que a NBA tenha sido produzida por um modelo ou regra aprovados.
 
 ---
 
@@ -339,6 +460,30 @@ Regra recomendada:
 
 > **MCP exposes enterprise capabilities; it does not reimplement enterprise services.**
 
+### P8. Relevância nunca amplia autorização
+
+Segmentação, clusterização, recomendação, ranking, propensity scores e decisioning podem ordenar ou reduzir o conjunto de candidatas. Eles não podem criar entitlement.
+
+```text
+RankedCandidates(subject, context) ⊆ FilteredOfferings(subject, context)
+FilteredOfferings(subject, context) ⊆ MaximumEntitlement(client)
+```
+
+Um cluster de perfil não é um security principal. Mudanças de cluster não concedem automaticamente acesso a novas capabilities; qualquer ampliação exige uma decisão explícita e auditável do Entitlement Manager/PDP.
+
+### P9. A NBA é decisão de orquestração, não decisão de autorização
+
+O Service Orchestrator calcula a Next Best Action combinando contexto de decisão, estado da jornada, modelo de decisioning, regras, guardrails e memória. O resultado pode selecionar uma capability, um agente, um canal e um instante de execução, mas permanece sujeito a:
+
+- filtered discovery;
+- execution authorization;
+- transaction policy;
+- consentimento e limites de contato;
+- human-in-the-loop quando aplicável;
+- autorização final do backend.
+
+Uma NBA negada pelo PEP não é automaticamente substituída por execução direta ou bypass. O Orchestrator deve recalcular, degradar com segurança ou encerrar a jornada conforme política.
+
 ---
 
 ## 5. Modelo de confiança
@@ -418,13 +563,20 @@ Componente probabilístico responsável por:
 Responsável por:
 
 - executar ou coordenar agentes;
-- manter contexto;
+- receber o `DecisionContext` com perfil, identidade autenticada, limites e ofertas filtradas;
+- manter estado de jornada, contexto e memória operacional;
 - gerenciar chamadas ao modelo;
+- calcular a Next Best Action (NBA);
+- combinar decisioning model, regras e guardrails;
+- selecionar agente, canal e estratégia de handoff;
 - instanciar ou utilizar MCP Clients;
 - aplicar guardrails;
-- implementar human-in-the-loop quando necessário.
+- implementar human-in-the-loop quando necessário;
+- emitir telemetria e trilha de decisão correlacionáveis com o PEP e o backend.
 
 Guardrails são defense-in-depth, não substitutos do PEP.
+
+O Orchestrator decide **qual ação tentar**. O PEP/PDP decide **se aquela ação pode ser executada**, e o backend continua decidindo sobre seus próprios recursos.
 
 ---
 
@@ -559,6 +711,226 @@ Pode ser implementado como:
 - adapters para APIs existentes;
 - integração com ESB/API Management já existente.
 
+Além do data plane, o Fabric oferece o ponto corporativo de **publicação e subscrição** de capabilities. Publicar significa registrar um contrato governado e resolvível; subscrever significa descobrir ou consumir uma projeção autorizada desse contrato. O Fabric não entrega o catálogo global indiscriminadamente a cada agente.
+
+---
+
+### 6.8 Service owners e publishing pipelines
+
+Cada capability deve possuir um owner responsável por contrato, risco, política, qualidade operacional e ciclo de vida. A publicação deve ocorrer por pipeline, não por cadastro manual ad hoc em produção.
+
+Um pipeline de publicação deve validar pelo menos:
+
+- nome canônico, namespace e versão;
+- descrição voltada a consumo agêntico;
+- input/output schema;
+- owner e domínio de negócio;
+- classificação de risco e dados;
+- side effects e idempotência;
+- políticas de entitlement e transação;
+- requirements de consentimento ou aprovação;
+- adapter/backend e health checks;
+- telemetria, SLOs, depreciação e rollback.
+
+```mermaid
+flowchart LR
+    Owner["Service owner"] --> Manifest["Capability manifest"]
+    Manifest --> Pipeline["Publishing pipeline"]
+    Pipeline --> Schema["Schema and contract validation"]
+    Pipeline --> Risk["Risk and data classification"]
+    Pipeline --> Policy["Policy tests"]
+    Pipeline --> Ops["Health, SLO and telemetry checks"]
+    Schema --> Gate["Publication gate"]
+    Risk --> Gate
+    Policy --> Gate
+    Ops --> Gate
+    Gate -->|"approved"| Registry["Global Capability Registry"]
+    Registry --> Fabric["Enterprise MCP Fabric"]
+    Gate -->|"rejected"| Owner
+```
+
+Exemplo de manifesto mínimo:
+
+```yaml
+apiVersion: enterprise.mcp/v1
+kind: Capability
+metadata:
+  name: benefits.present
+  namespace: engagement
+  version: 1.2.0
+  owner: customer-engagement
+spec:
+  description: Present an eligible benefit to a customer in an approved channel
+  riskTier: medium
+  dataClassification: internal
+  sideEffects: none
+  idempotent: true
+  requiredEntitlements:
+    - engagement.benefits.read
+  transactionPolicy:
+    consentPurpose: personalization
+    allowedChannels: [app, web, email]
+  backend:
+    adapter: benefits-api
+    operation: GET /v2/benefits/{benefitId}
+  lifecycle:
+    status: active
+    sunsetAfter: 2027-09-01
+```
+
+### 6.9 Entitlement Manager
+
+É o componente central de gestão de **cardápios MCP personalizados**. Ele materializa políticas em conjuntos de capabilities associados a identidades autenticadas de clients/workloads.
+
+Responsabilidades:
+
+- resolver `MaximumEntitlement(client)`;
+- combinar perfis de segurança pré-aprovados para clients/workloads, políticas organizacionais, risco e contexto;
+- produzir versões cacheáveis e revogáveis do cardápio;
+- fornecer dados de decisão ao PDP;
+- manter provenance: qual regra incluiu, restringiu ou removeu uma capability;
+- invalidar projeções após revogação, mudança de risco ou alteração do catálogo.
+
+O Entitlement Manager é autoridade sobre o cardápio máximo. Ele não executa ranking de relevância, não calcula NBA e não confia em atributos autodeclarados pelo LLM.
+
+### 6.10 Profile Intelligence e clusterização genérica
+
+Profile Intelligence transforma atributos permitidos em uma visão de perfil utilizável por personalização e orquestração. A implementação pode usar regras, clustering não supervisionado, classificação supervisionada, embeddings ou uma combinação dessas técnicas.
+
+Fontes genéricas possíveis:
+
+- atributos de relacionamento e ciclo de vida;
+- frequência, recência e intensidade de interação;
+- afinidade por categorias de produtos ou serviços;
+- histórico de respostas a jornadas;
+- preferências declaradas;
+- contexto temporal, geográfico ou de canal quando permitido;
+- sinais de satisfação, propensão, churn ou necessidade de suporte.
+
+Requisitos de governança:
+
+- usar identificadores pseudonimizados quando possível;
+- documentar features, finalidade, janela temporal e qualidade;
+- evitar atributos sensíveis ou proxies sem base legal e revisão apropriada;
+- versionar modelos e definições de segmentos;
+- monitorar drift, estabilidade e impacto desigual;
+- permitir explicações por `reason codes`;
+- garantir que o resultado reduza ou ordene candidatas, nunca amplie entitlement.
+
+Consentimento não deve ser inferido por clusterização. Ele entra como atributo determinístico no Offering Filter, nos guardrails de decisão e na autorização transacional.
+
+Exemplo de saída genérica:
+
+```json
+{
+  "subjectRef": "subject:7f31c2",
+  "profileVersion": "profile-model-3.4",
+  "segments": [
+    {"id": "low-engagement", "score": 0.86},
+    {"id": "digital-preference", "score": 0.73}
+  ],
+  "attributes": {
+    "relationshipStage": "activation",
+    "preferredChannels": ["app", "email"],
+    "engagementBand": "low"
+  },
+  "reasonCodes": ["LOW_RECENCY", "APP_AFFINITY"],
+  "expiresAt": "2026-09-04T12:00:00Z"
+}
+```
+
+Os nomes acima são ilustrativos. A arquitetura não prescreve taxonomia, algoritmo, número de clusters ou atributos específicos.
+
+### 6.11 Offering Filter
+
+Produz o conjunto de capabilities e ofertas simultaneamente disponíveis, elegíveis e relevantes para o contexto corrente. Opera depois do teto de entitlement e antes do ranking da NBA.
+
+```text
+FilteredOfferings(subject, client, context)
+  = ActiveCatalog
+  ∩ MaximumEntitlement(client)
+  ∩ SubjectAndContextConstraints(subject, context)
+```
+
+O filtro pode considerar disponibilidade, região, canal, consentimento, horário, estoque, compatibilidade, frequency caps e restrições transacionais. Uma oferta ausente do maximum entitlement nunca pode ser reintroduzida por score de perfil.
+
+### 6.12 Service Orchestrator
+
+Coordena jornadas e agentes sobre um universo previamente permitido e relevante. Seu contrato de entrada é um `DecisionContext`; sua principal saída é uma NBA acompanhada das informações necessárias ao dispatch.
+
+```mermaid
+flowchart LR
+    subgraph HP["GOVERNED PERSONALIZATION"]
+        Profile["Profile view"]
+        Entitlement["Entitlement limits"]
+        Offerings["Filtered offerings"]
+        Context["Runtime context<br/>identity • consent • channel"]
+        DC["Decision Context<br/>context + identity + limits"]
+        Profile --> DC
+        Entitlement --> DC
+        Offerings --> DC
+        Context --> DC
+    end
+
+    subgraph ORCH["SERVICE ORCHESTRATOR"]
+        Journey["Journey & Agent Orchestrator<br/>state • objective • NBA function"]
+        Model["Decisioning model<br/>rules • guardrails"]
+        State["State • memory<br/>telemetry • traceability"]
+        DC --> Journey
+        Model --> Journey
+        State <--> Journey
+    end
+
+    subgraph CHANNELS["AGENTS AND CHANNELS"]
+        Runtime["Agent Runtime<br/>context • session • handoff"]
+        Chat["Conversational"]
+        Push["Proactive"]
+        Media["Media / campaigns"]
+        Journey -->|"NBA + agent dispatch"| Runtime
+        Runtime --> Chat
+        Runtime --> Push
+        Runtime --> Media
+    end
+```
+
+Responsabilidades:
+
+- manter estado e objetivo da jornada;
+- calcular NBA com função de decisão versionada;
+- aplicar regras de canal, frequência, consentimento, timing e pressão de contato;
+- coordenar múltiplos agentes sem perder contexto;
+- decidir handoff entre agentes ou para atendimento humano;
+- correlacionar decisão, chamada MCP, execução e resultado;
+- recalcular ou degradar com segurança quando uma ação for negada ou indisponível.
+
+O Orchestrator não pode emitir credenciais de maior privilégio, alterar entitlement, suprimir a reautorização de `tools/call` ou substituir a decisão do backend.
+
+### 6.13 Agent Runtime e channel adapters
+
+O Agent Runtime traduz a NBA em execução coordenada. Ele gerencia sessão, contexto mínimo, lifecycle do agente, retries seguros e handoff. Channel adapters encapsulam diferenças entre experiências conversacionais, notificações proativas, mídia, campanhas e novos agentes especializados.
+
+Uma saída de dispatch pode ter a forma:
+
+```json
+{
+  "decisionId": "dec-01J7A6N3",
+  "action": "benefits.present",
+  "capabilityVersion": "1.2.0",
+  "subjectRef": "subject:7f31c2",
+  "channel": "app",
+  "agent": "engagement-assistant",
+  "reasonCodes": ["ELIGIBLE", "ACTIVATION_OBJECTIVE", "FREQUENCY_OK"],
+  "policyContext": {
+    "entitlementVersion": "ent-2026-09-03-17",
+    "consentPurpose": "personalization",
+    "maxContactsPerWeek": 2
+  },
+  "expiresAt": "2026-09-03T18:00:00Z"
+}
+```
+
+Esse objeto representa intenção de execução. Ele não substitui o token do MCP Client nem a autorização determinística realizada pelo Gateway/PEP.
+
 ---
 
 ## 7. Modelo de entitlement
@@ -634,6 +1006,48 @@ flowchart LR
 Essa segmentação cria **blast-radius domains**.
 
 O objetivo não é necessariamente criar um client por agente, mas um client por **perfil máximo de privilégio aceitável**.
+
+### 7.3 Do catálogo global ao cardápio personalizado
+
+A arquitetura distingue quatro conjuntos que não devem ser confundidos:
+
+| Conjunto | Pergunta respondida | Autoridade |
+|---|---|---|
+| `GlobalCatalog` | O que foi publicado e está operacionalmente disponível? | Registry + Fabric |
+| `MaximumEntitlement` | Qual é o teto de capabilities deste MCP Client? | Entitlement Manager + PDP |
+| `FilteredOfferings` | O que é permitido e aplicável ao subject/contexto atual? | Offering Filter sob política |
+| `RankedCandidates` | Qual candidata é mais relevante para o objetivo da jornada? | Service Orchestrator |
+
+```mermaid
+flowchart LR
+    Global["GlobalCatalog<br/>todas as capabilities publicadas"]
+    Max["MaximumEntitlement<br/>teto do MCP Client"]
+    Filtered["FilteredOfferings<br/>permitidas + aplicáveis"]
+    Ranked["RankedCandidates<br/>ordenadas por relevância"]
+    NBA["NBA<br/>ação selecionada"]
+
+    Identity["Authenticated workload identity"] --> Max
+    Policies["Entitlement policies"] --> Max
+    Global --> Max
+
+    Subject["Subject attributes + consent"] --> Filtered
+    Runtime["Runtime context"] --> Filtered
+    Max --> Filtered
+
+    Profile["Generic profile view"] --> Ranked
+    Journey["Journey state + objective"] --> Ranked
+    Filtered --> Ranked --> NBA
+```
+
+As relações de subconjunto são invariantes:
+
+```text
+MaximumEntitlement(client) ⊆ GlobalCatalog
+FilteredOfferings(subject, client, context) ⊆ MaximumEntitlement(client)
+RankedCandidates(subject, client, context) ⊆ FilteredOfferings(subject, client, context)
+```
+
+Ranking altera ordem e prioridade; não altera autorização.
 
 ---
 
@@ -757,6 +1171,67 @@ sequenceDiagram
         end
     end
 ```
+
+### 10.1 Fluxo orquestrado de decisão e execução
+
+O fluxo a seguir conecta profile intelligence, entitlement, filtered offerings, cálculo da NBA e execução MCP sem fundir suas autoridades.
+
+```mermaid
+sequenceDiagram
+    autonumber
+    participant X as Runtime Context
+    participant PI as Profile Intelligence
+    participant EM as Entitlement Manager
+    participant OF as Offering Filter
+    participant O as Service Orchestrator
+    participant AR as Agent Runtime
+    participant C as MCP Client
+    participant G as MCP Gateway / PEP
+    participant P as PDP
+    participant F as MCP Fabric
+    participant B as Backend
+
+    X->>O: event + subjectRef + channel + consent
+    O->>PI: resolveProfile(subjectRef, context)
+    PI-->>O: versioned profile view + reason codes
+    O->>EM: resolveMaximumEntitlement(client identity)
+    EM-->>O: entitlement version + limits
+    O->>OF: filter(profile, entitlement, context)
+    OF-->>O: filtered offerings
+    O->>O: NBA = decisioning(state, objective, rules, guardrails)
+    O->>O: persist decision trace
+    O->>AR: NBA + agent dispatch
+    AR->>C: tools/call(capability, arguments)
+    C->>G: authenticated MCP request
+    G->>P: entitlement + transaction authorization
+    P-->>G: ALLOW / DENY / REQUIRE_APPROVAL
+
+    alt ALLOW
+        G->>F: invoke authorized capability
+        F->>B: call with appropriate downstream identity
+        B-->>F: result
+        F-->>G: result + correlation
+        G-->>C: tool result
+        C-->>AR: execution result
+        AR-->>O: outcome + telemetry
+        O->>O: update state and memory
+    else DENY or unavailable
+        G-->>C: deterministic denial
+        C-->>AR: denied + decision reference
+        AR-->>O: failure + correlation id
+        O->>O: recalculate, safe fallback or stop
+    end
+```
+
+Exemplo genérico:
+
+1. Um evento de ativação chega com identidade pseudonimizada, canal atual e consentimento.
+2. Profile Intelligence classifica o subject como `low-engagement` e `digital-preference`.
+3. O Entitlement Manager permite apenas capabilities de consulta e apresentação de benefícios; operações de compra não pertencem ao cardápio.
+4. O Offering Filter remove itens expirados, indisponíveis no canal ou incompatíveis com consentimento e frequency cap.
+5. O Orchestrator escolhe `benefits.present` como NBA e despacha um agente conversacional no app.
+6. O Gateway reautoriza `tools/call`; a decisão do Orchestrator, isoladamente, não concede execução.
+7. Resultado e reason codes atualizam estado, memória, telemetria e trilha de auditoria.
 
 ---
 
@@ -1418,6 +1893,13 @@ catalog_changed
 | Excessive privilege | omnibus client com centenas de writes | segmentation by domain/risk |
 | Policy drift | entitlement antigo permanece em cache | policy version + invalidation |
 | Backend over-trust | backend confia apenas no gateway | backend resource authorization |
+| Profile poisoning | eventos manipulados alteram cluster ou score | source validation + feature lineage + anomaly detection |
+| Profile drift | modelo deixa de representar o comportamento atual | versioning + drift monitoring + expiry |
+| Sensitive attribute leakage | perfil expõe atributo ou proxy indevido | data minimization + purpose limitation + review |
+| Decision manipulation | prompt ou tool output tenta forçar uma NBA | constrained decision context + rules + guardrails |
+| Consent/frequency bypass | jornada insiste em canal ou contato bloqueado | deterministic channel policy + frequency caps |
+| Stale decision replay | dispatch antigo é executado após revogação | short expiry + idempotency + reauthorization |
+| Traceability gap | decisão não pode ser ligada à execução | end-to-end correlation ids + immutable audit trail |
 
 ---
 
@@ -1724,6 +2206,34 @@ A plataforma deve suportar credenciais apropriadas ao backend sem blind token pa
 ### RF-10 — High-risk approval
 
 Tools de alto risco devem suportar aprovação adicional quando requerido.
+
+### RF-11 — Governed publication
+
+Capabilities devem ser publicadas por pipeline com validação de contrato, owner, risco, políticas, versão, saúde e observabilidade.
+
+### RF-12 — Personalized MCP menu
+
+O Entitlement Manager deve produzir cardápios versionados, explicáveis, cacheáveis e revogáveis por identidade autenticada de client/workload.
+
+### RF-13 — Generic profile view
+
+Profile Intelligence deve expor um contrato genérico e substituível de atributos, segmentos ou scores, incluindo versão, expiração e reason codes.
+
+### RF-14 — Safe offering filtering
+
+O Offering Filter deve garantir que nenhuma candidata fora do Maximum Entitlement seja introduzida por perfil, cluster, score ou contexto.
+
+### RF-15 — NBA orchestration
+
+O Service Orchestrator deve calcular e registrar a NBA a partir de Decision Context, estado, objetivo, modelo, regras, guardrails e memória.
+
+### RF-16 — Agent dispatch and handoff
+
+O Agent Runtime deve suportar dispatch, sessão, correlação e handoff entre agentes, canais e atendimento humano quando aplicável.
+
+### RF-17 — End-to-end correlation
+
+Cada jornada deve correlacionar `profileVersion`, `entitlementVersion`, `decisionId`, `policyDecisionId`, `mcpRequestId`, execução downstream e outcome.
 
 ---
 
@@ -2109,7 +2619,20 @@ Adicionar:
 - federation;
 - lifecycle automation.
 
-### Fase 4 — Enterprise scale
+### Fase 4 — Personalização e orquestração governadas
+
+Adicionar:
+
+- schema genérico e versionado de `ProfileView`;
+- Entitlement Manager e cardápios personalizados;
+- Offering Filter com consentimento, contexto e frequency caps;
+- contrato versionado de `DecisionContext`;
+- Service Orchestrator com NBA function, regras e guardrails;
+- Agent Runtime e adapters para canais selecionados;
+- correlação entre decisão, dispatch, chamada MCP e outcome;
+- testes que comprovem que perfil, score e cluster não ampliam entitlement.
+
+### Fase 5 — Enterprise scale
 
 Adicionar:
 
@@ -2179,6 +2702,13 @@ ADR-007: Gateway Bypass Prevention
 ADR-008: Client Segmentation by Domain and Risk
 ADR-009: Tool Risk Classification
 ADR-010: Global Capability Registry Governance
+ADR-011: Capability Publication and Subscription Lifecycle
+ADR-012: Entitlement Manager as Personalized MCP Menu Authority
+ADR-013: Generic and Replaceable Profile Intelligence Contract
+ADR-014: Profile Relevance Cannot Expand Entitlement
+ADR-015: Service Orchestrator Owns NBA, Not Authorization
+ADR-016: Agent Runtime Dispatch and Handoff Contract
+ADR-017: End-to-End Decision and Execution Correlation
 ```
 
 ---
@@ -2246,9 +2776,104 @@ A compromised client must have a predictable blast radius.
 Every security decision must be deterministic and auditable.
 ```
 
+### Axiom 11
+
+```text
+Profile intelligence may rank or reduce candidates; it must never grant capabilities.
+```
+
+### Axiom 12
+
+```text
+An NBA is an orchestration intent, not an authorization decision.
+```
+
+### Axiom 13
+
+```text
+Capabilities are published once and reused only through governed subscription and enforcement.
+```
+
 ---
 
 ## 51. Visão consolidada
+
+### 51.1 Visão lógica ampliada
+
+```mermaid
+flowchart TB
+    subgraph Supply["CAPABILITY SUPPLY"]
+        SO["Service owners"] --> PP["Publishing pipelines"] --> GCR["Global Capability Registry"]
+    end
+
+    subgraph Personalization["GOVERNED PERSONALIZATION"]
+        Attr["Generic profile attributes<br/>behavior • journey • preferences"]
+        PI["Profile Intelligence<br/>versioned segments / scores"]
+        EM["Entitlement Manager<br/>personalized MCP menus"]
+        OF["Offering Filter<br/>eligible + contextual candidates"]
+        CTX["Declared consent<br/>channel • runtime context"]
+        DC["Decision Context<br/>profile • identity • limits • offerings • context"]
+
+        Attr --> PI --> DC
+        EM --> OF --> DC
+        CTX --> OF
+        CTX --> DC
+    end
+
+    subgraph Journey["JOURNEY AND AGENT ORCHESTRATION"]
+        O["Service Orchestrator<br/>state • objective • NBA function"]
+        DM["Decisioning model<br/>rules • guardrails"]
+        MT["State • memory<br/>telemetry • traceability"]
+        DC --> O
+        DM --> O
+        MT <--> O
+    end
+
+    subgraph Experience["AGENTS AND CHANNELS"]
+        AR["Agent Runtime<br/>context • session • handoff"]
+        CA["Conversational agents"]
+        PA["Proactive agents"]
+        MA["Media, campaigns and extensions"]
+        O -->|"NBA + agent dispatch"| AR
+        AR --> CA
+        AR --> PA
+        AR --> MA
+    end
+
+    subgraph EMCB["ENTERPRISE MCP SERVICE BUS"]
+        MC["MCP Client<br/>authenticated workload identity"]
+        PEP["MCP Gateway / PEP<br/>filtered discovery + enforcement"]
+        PDP2["PDP / Policy Engine<br/>entitlement + transaction"]
+        REG["Capability registry view"]
+        AUD["Correlated audit"]
+        FAB["Enterprise MCP Fabric<br/>publish • subscribe • route • mediate • resolve"]
+
+        MC --> PEP
+        PEP <--> PDP2
+        REG --> PEP
+        PEP --> AUD
+        PDP2 --> AUD
+        PEP --> FAB
+    end
+
+    GCR --> REG
+    GCR --> FAB
+    GCR --> OF
+    PDP2 <--> EM
+    O --> MC
+    FAB --> Existing2["API Gateway • ESB • service mesh • functions • SaaS"]
+    Existing2 --> Records["ERP • CRM • data platforms • legacy • partner ecosystem"]
+    AR --> MT
+    AUD --> MT
+```
+
+Esta visão evidencia três separações essenciais:
+
+- **Registry/Fabric publicam e resolvem** capabilities; Entitlement Manager personaliza o que cada client pode consumir.
+- **Profile Intelligence e Offering Filter qualificam candidatas**; Service Orchestrator calcula a NBA.
+- **Agent Runtime executa a jornada**; MCP Gateway/PDP e backend continuam como autoridades determinísticas.
+
+### 51.2 Núcleo técnico e fronteiras de confiança
 
 ```mermaid
 flowchart TB
@@ -2347,26 +2972,35 @@ O MCP Gateway atua como PEP e garante que:
 - o backend mantenha sua própria fronteira de autorização;
 - um comprometimento seja contido pelo blast radius do client.
 
-O MCP Fabric, por sua vez, cumpre papel semelhante ao de um **Enterprise Service Bus semântico para agentes**: resolve capabilities em serviços corporativos existentes, preservando governança, isolamento e integração com a infraestrutura enterprise já estabelecida.
+O MCP Fabric, por sua vez, cumpre papel semelhante ao de um **Enterprise Service Bus semântico para agentes**: centraliza publicação, subscrição e resolução de capabilities sobre serviços corporativos existentes, preservando governança, isolamento e integração com a infraestrutura enterprise já estabelecida.
+
+Ao redor desse núcleo:
+
+- Profile Intelligence produz uma visão genérica, versionada e explicável do perfil;
+- o Entitlement Manager governa cardápios MCP personalizados;
+- o Offering Filter restringe o universo a candidatas permitidas e aplicáveis;
+- o Service Orchestrator calcula a NBA dentro desse universo;
+- o Agent Runtime coordena execução, sessão, canal e handoff;
+- telemetria e traceability fecham o ciclo sem transformar observação em privilégio.
 
 A combinação pode ser resumida como:
 
 ```text
-Agentic Experience
-        ↓
-MCP Client
-        ↓
-Client-Bound Maximum Entitlement
-        ↓
-MCP Gateway / PEP
-        ↔
-PDP / Policy Engine
-        ↓
-Enterprise MCP Fabric
-        ↓
-Existing APIs / ESB / Functions / Services
-        ↓
-Systems of Record
+CAPABILITY SUPPLY
+Service owners -> Publishing pipelines -> Global Capability Registry
+    -> Enterprise MCP Fabric -> Enterprise services
+
+DECISION AND EXECUTION
+Generic Profile View
+Authenticated Identity -> Entitlement Manager -> Maximum Entitlement
+Runtime Context + Consent
+    -> Filtered Offerings
+    -> Decision Context = profile + identity + limits + context
+    -> Service Orchestrator = state + objective + NBA
+    -> NBA + agent dispatch
+    -> Agent Runtime and Channels
+    -> MCP Client -> MCP Gateway / PEP <-> PDP / Policy Engine
+    -> Enterprise MCP Fabric
 ```
 
 O resultado desejado não é tornar o agente "confiável".
@@ -2414,7 +3048,28 @@ Catálogo administrativo completo de capabilities governadas.
 Catálogo MCP filtrado de acordo com o entitlement do client autenticado.
 
 **Enterprise MCP Fabric**  
-Camada de integração que resolve tools MCP em serviços, APIs, funções e sistemas corporativos.
+Camada de integração que suporta publicação, subscrição e resolução de tools MCP em serviços, APIs, funções e sistemas corporativos.
+
+**Entitlement Manager**  
+Componente que resolve, versiona e revoga o Maximum Entitlement e os cardápios MCP personalizados associados a clients/workloads autenticados.
+
+**Profile Intelligence**  
+Capacidade substituível que deriva segmentos, clusters, scores ou atributos de perfil a partir de dados genericamente definidos e governados. Seu resultado informa relevância, não concede autorização.
+
+**Offering Filter**  
+Componente que intersecta catálogo ativo, entitlement, restrições do subject e contexto para produzir capabilities ou ofertas elegíveis para decisão.
+
+**Decision Context**  
+Envelope versionado contendo profile view, identidade autenticada, limites de entitlement, ofertas filtradas e contexto de runtime fornecidos ao Service Orchestrator.
+
+**Service Orchestrator**  
+Componente que coordena estado e objetivo da jornada, combina modelo de decisioning, regras, guardrails e memória e calcula a Next Best Action.
+
+**Next Best Action — NBA**  
+Ação escolhida pelo Orchestrator para um contexto e objetivo de jornada. Pode indicar capability, agente, canal e timing, mas não constitui autorização de execução.
+
+**Agent Runtime**  
+Camada que executa ou coordena agentes e channel adapters a partir de um dispatch, mantendo sessão, contexto mínimo, handoff e telemetria.
 
 **Blast Radius**  
 Impacto máximo esperado em caso de comprometimento de uma identidade ou componente.
