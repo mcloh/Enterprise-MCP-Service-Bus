@@ -2,12 +2,13 @@
 ## Reference Architecture para acesso agêntico governado por Client-Bound Entitlements
 
 **Status:** Working Draft v0.2  
-**Publicação:** 3 de setembro de 2026  
 **Escopo:** Arquitetura corporativa para publicar, descobrir, personalizar, orquestrar e executar capacidades empresariais por meio de MCP, com um MCP Gateway atuando como Policy Enforcement Point (PEP), o MCP Client definindo o limite máximo de privilégio e o Service Orchestrator calculando a Next Best Action (NBA) dentro desse limite.
 
 ## Reference implementation
 
-A implementação executável desta arquitetura está em [`RI/`](RI/README.md), com gateway MCP, PEP/PDP, OPA, Keycloak, serviços de exemplo, testes adversariais e ambiente Docker Compose.
+A implementação executável desta arquitetura está planejada para [`RI/`](RI/README.md) — diretório a ser criado a partir do backlog estruturado em [`docs/RI-PLANNING.md`](docs/RI-PLANNING.md) — com gateway MCP, PEP/PDP sobre OPA (Rego v1), Keycloak como Identity Provider (OAuth 2.1/OIDC), serviços de exemplo, testes adversariais e ambiente Docker Compose.
+
+> **Nota de implementação (v0.2+).** A camada de orquestração de agentes (LangGraph) e de observabilidade de LLM (Langfuse) da RI adota como referência operacional o projeto open-source *Agent Platform OCI*, de Christiano Hoshikawa — ver §6.2, §6.12, §35.1 e §43.5 para as anotações correspondentes, e `docs/research/hoshikawa-agent-platform-oci.md` para a análise completa.
 
 ### Novidades da v0.2
 
@@ -578,6 +579,8 @@ Guardrails são defense-in-depth, não substitutos do PEP.
 
 O Orchestrator decide **qual ação tentar**. O PEP/PDP decide **se aquela ação pode ser executada**, e o backend continua decidindo sobre seus próprios recursos.
 
+> **Nota de implementação.** Na prática, este papel é frequentemente cumprido por uma plataforma de orquestração multiagente externa e independente do bus — por exemplo, um framework baseado em LangGraph com múltiplos backends de agente e um supervisor global de roteamento entre eles (ver `Agent Platform OCI`, §43.5). Quando isso ocorre, cada backend/agente dessa plataforma deve se conectar ao Enterprise MCP Service Bus como um MCP Client distinto (§6.3), nunca como uma extensão de confiança do Gateway. A relação entre este papel e o Service Orchestrator (§6.12) desta arquitetura é de escolha modular, não de sobreposição: ver §6.12 para os dois modos de integração possíveis.
+
 ---
 
 ### 6.3 MCP Client
@@ -903,7 +906,11 @@ Responsabilidades:
 - correlacionar decisão, chamada MCP, execução e resultado;
 - recalcular ou degradar com segurança quando uma ação for negada ou indisponível.
 
+> **Nota de implementação.** O termo NBA usado nesta arquitetura cobre também a escolha de uma **Next Best Offer (NBO)** quando o universo de `FilteredOfferings` (§6.11) inclui ofertas comerciais, benefícios ou campanhas, e não apenas ações transacionais. A "função de decisão versionada" citada acima é deliberadamente pluggable — pode ser um conjunto de regras determinístico ou incorporar um modelo de IA de ranking/recomendação — desde que opere estritamente sobre `FilteredOfferings`, nunca ampliando o universo permitido (Axiom 11).
+
 O Orchestrator não pode emitir credenciais de maior privilégio, alterar entitlement, suprimir a reautorização de `tools/call` ou substituir a decisão do backend.
+
+> **Nota de implementação — dois modos de integração.** Esta arquitetura não impõe onde o cálculo de NBA/NBO deve residir. **Modo A (governança-somente):** uma plataforma de orquestração externa (§6.2) mantém sua própria lógica de decisão e consome o bus apenas para acesso governado ao Fabric. **Modo B (substituição completa):** o Service Orchestrator aqui descrito assume integralmente o cálculo de NBA/NBO, e a plataforma externa, quando existente, atua apenas como executor de dispatch via Agent Runtime (§6.13). Em ambos os modos o núcleo de segurança (§6.4, §6.5) permanece no mesmo lugar — apenas a origem da decisão de NBA/NBO muda. Modularidade e compatibilidade são, portanto, uma escolha do adotante, não uma imposição da arquitetura.
 
 ### 6.13 Agent Runtime e channel adapters
 
@@ -2115,6 +2122,8 @@ agent.role = "finance-admin"
 
 **Problema:** informação controlada pelo agente eleva privilégio.
 
+> **Nota de implementação.** Este anti-pattern não é apenas hipotético. A análise de um MCP Gateway de terceiros (projeto *Agent Platform OCI*, §43.5) encontrou exatamente esta forma: um allowlist de tools avaliado sobre um campo `agent_id` que chega como dado do payload de entrada da conversa, não como claim de uma identidade autenticada verificada independentemente — a própria documentação daquele projeto reconhece que "a política conversacional não substitui autenticação, autorização, idempotência nem atomicidade no MCP Server". O caso serve como validação prática do princípio P3 (§4): qualquer campo que o agente, o canal ou o payload de entrada possam declarar deve ser tratado como não confiável para fins de autorização, mesmo quando usado de boa-fé por um MCP Gateway aparentemente funcional.
+
 ---
 
 ### 35.2 Catálogo completo + deny somente na execução
@@ -2452,6 +2461,12 @@ Publicações recentes descrevem:
 
 Esses trabalhos mostram convergência do mercado para gateways, agregação e policy enforcement.
 
+### 43.5 Plataformas de orquestração multiagente
+
+Frameworks de orquestração de agentes baseados em LangGraph — como o projeto open-source **Agent Platform OCI**, de Christiano Hoshikawa (`github.com/hoshikawa2/agent_platform_oci`) — resolvem um problema complementar ao desta arquitetura: coordenação de múltiplos agentes/backends, roteamento de conversa, handoff, checkpointing de estado e observabilidade de LLM (no caso daquele projeto, via Langfuse, com uma taxonomia de eventos de negócio/operacional/guardrail). Esse tipo de plataforma tipicamente expõe seu próprio "MCP Gateway" para dar aos agentes acesso a tools, mas com um modelo de autorização simplificado — no caso analisado, um allowlist declarativo por `agent_id`, sem PDP dedicado nem separação formal entre discovery e execution authorization.
+
+A relação entre esta arquitetura e uma plataforma desse tipo não é de concorrência, mas de composição: a plataforma de orquestração cumpre o papel de Agent Host/Orchestrator (§6.2) e, opcionalmente, de Service Orchestrator (§6.12, Modo A), enquanto o Enterprise MCP Service Bus assume integralmente o papel de PEP/PDP e Fabric — cada backend de agente daquela plataforma conecta-se ao bus como um MCP Client distinto (§6.3), e o "MCP Gateway" interno da plataforma deixa de ser a fonte de autorização, sendo substituído pelo Gateway desta arquitetura. Ver §35.1 para o anti-pattern especificamente observado nesse tipo de integração, e §6.12 para o Modo B, em que o Service Orchestrator desta arquitetura substitui inteiramente a camada de decisão de NBA/NBO da plataforma externa.
+
 ---
 
 ## 44. Relação com governança interna de Skills/MCP
@@ -2656,17 +2671,20 @@ A visão arquitetural está consistente, mas uma implementação concreta precis
    - workload identity?
    - mTLS?
    - cloud IAM?
+   - → **Decisão adotada na RI**: OAuth 2.1 `client_credentials` via Keycloak, com mTLS/workload identity documentados como extensão de produção não implementada (`docs/RI-PLANNING.md`, ADR-019).
 
 2. **Qual será a granularidade dos client profiles?**
    - domínio?
    - domínio + read/write?
    - domínio + risk tier?
+   - → **Decisão adotada na RI**: domínio + risk tier (ver §17; `docs/RI-PLANNING.md`, ADR-008).
 
 3. **Qual engine implementará o PDP?**
    - engine próprio?
    - Cedar?
    - OPA/Rego?
    - IAM/policy service existente?
+   - → **Decisão adotada na RI**: OPA/Rego (sintaxe v1), self-hosted (`docs/RI-PLANNING.md`, ADR-025 — não confundir com o ADR-010 acima, "Global Capability Registry Governance", que é uma decisão distinta).
 
 4. **Quem é owner do Global Capability Registry?**
 
@@ -2674,16 +2692,21 @@ A visão arquitetural está consistente, mas uma implementação concreta precis
    - workload identity?
    - OBO/token exchange?
    - backend service account?
+   - → **Decisão adotada na RI**: token exchange (RFC 8693) quando o backend suportar OIDC, senão service account isolado por adapter (`docs/RI-PLANNING.md`, ADR-020).
 
 6. **Quais tools exigirão human approval?**
 
 7. **Como policy revocation invalidará caches?**
+   - → **Decisão adotada na RI**: invalidação disparada por evento de revogação/mudança de política, com TTL curto como rede de segurança adicional (`docs/RI-PLANNING.md`, EP-04-T03/EP-05-T03).
 
 8. **Qual será o modelo de federation entre domain MCP servers?**
+   - → **Escopo da RI**: federação completa fica fora de escopo — a RI demonstra 2 domínios (Sales, Finance), suficiente para provar segmentação/blast-radius (`docs/RI-PLANNING.md`, lacuna G9).
 
 9. **Como impedir bypass em ambientes híbridos/multi-cloud?**
+   - → **Escopo da RI**: a RI roda 100% local via Docker Compose; ambientes híbridos/multi-cloud ficam fora de escopo (`docs/RI-PLANNING.md`, lacuna G10).
 
 10. **Como separar dev/test/prod client identities e entitlements?**
+    - → **Decisão adotada na RI**: overlay de configuração por ambiente (`config/env/{dev,ci}.yaml`), sem infraestrutura cloud real (`docs/RI-PLANNING.md`, P10).
 
 ---
 
@@ -2710,6 +2733,8 @@ ADR-015: Service Orchestrator Owns NBA, Not Authorization
 ADR-016: Agent Runtime Dispatch and Handoff Contract
 ADR-017: End-to-End Decision and Execution Correlation
 ```
+
+> **Nota de implementação.** A RI estende esta lista com ADR-018 em diante — decisões de tecnologia concreta (stack Python/YAML, engine do PDP, Identity Provider, downstream identity, referência de implementação Python/LangGraph/Langfuse, posicionamento frente a plataformas de orquestração externas) necessárias para transformar estes 17 ADRs conceituais em uma implementação executável. Ver `docs/RI-PLANNING.md`, seção 8.4, para a lista completa (ADR-001 a ADR-025) e `docs/research/hoshikawa-agent-platform-oci.md` para a pesquisa que fundamenta ADR-022 a ADR-024.
 
 ---
 
