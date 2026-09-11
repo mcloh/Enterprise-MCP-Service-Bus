@@ -3252,4 +3252,14 @@ https://arxiv.org/abs/2606.30317
 
 ---
 
+## [R15] Agent Platform OCI
+
+Christiano Hoshikawa.  
+**Agent Platform OCI — Manual do Desenvolvedor**.  
+Framework open-source de orquestração multiagente sobre LangGraph, com roteamento/supervisor por backend, Global Supervisor entre backends e observabilidade via Langfuse (taxonomia de eventos IC/NOC/GRL). Referência de implementação adotada pela RI para a camada de orquestração de agentes e observabilidade de LLM — ver §6.2, §6.12, §35.1 e §43.5.
+
+https://github.com/hoshikawa2/agent_platform_oci
+
+---
+
 Este documento de arquitetura não reproduz dependências de implementação específicas deste ou daquele operating model e pode ser evoluído como uma reference architecture independente.
