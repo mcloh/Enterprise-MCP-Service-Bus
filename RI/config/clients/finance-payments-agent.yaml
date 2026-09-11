@@ -1,0 +1,4 @@
+client_id: finance-payments-agent
+profile: Finance.Payments
+environment: production
+description: "Finance agent authorized to create/execute payments (R3, approval above threshold)"

@@ -1,0 +1,4 @@
+client_id: sales-read-agent
+profile: Sales.Read
+environment: production
+description: "Read-only Sales conversational agent"

@@ -1,0 +1,17 @@
+# README.md §7.2, §17 (R3), §26 (payment.execute < 10k ALLOW, >= 10k REQUIRE_APPROVAL)
+name: Finance.Payments
+owner: finance-platform
+environment: production
+risk_ceiling: R3
+allowed_tools:
+  - finance.invoice.get
+  - finance.payment.create
+  - finance.payment.execute
+restrictions:
+  max_transaction_value: 10000000
+  approval_threshold: 10000
+credential_policy:
+  workload_identity: true
+  short_lived: true
+audit:
+  level: full

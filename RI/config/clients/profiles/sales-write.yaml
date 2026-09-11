@@ -1,0 +1,20 @@
+# README.md §7.1, §41
+name: Sales.Write
+owner: sales-platform
+environment: production
+risk_ceiling: R2
+allowed_tools:
+  - sales.customer.search
+  - sales.customer.get
+  - sales.order.get
+  - sales.inventory.check
+  - sales.quote.create
+  - sales.quote.update
+restrictions:
+  max_transaction_value: 500000
+  allowed_regions: ["BR-SP", "BR-RJ"]
+credential_policy:
+  workload_identity: true
+  short_lived: true
+audit:
+  level: full

@@ -1,0 +1,50 @@
+# EP-00-T04 (walking skeleton) + EP-16-T01 (grows into the full stack).
+#
+# `core` profile = M0: gateway + one example MCP server, static routing, no
+# enforcement yet. Later milestones add services under additional profiles
+# (`identity`, `policy`, `observability`, `llm-observability`, ...) so `docker
+# compose --profile core up` stays cheap through M0/M1 instead of requiring
+# the whole stack (Keycloak, OPA, Langfuse, ...) just to see the walking
+# skeleton trace.
+#
+# NOT executed against a real Docker daemon in the session this was authored
+# in (no `docker` binary in that sandbox) -- validated instead by running the
+# same two processes directly on the host (see RI/README.md). Please run
+# `docker compose --profile core up --build` on first use and report back if
+# anything needs adjusting.
+
+services:
+  sales-domain:
+    build:
+      context: .
+      dockerfile: deploy/docker/Dockerfile
+    command: ["python3", "-m", "example_mcp_servers.sales_domain.server"]
+    environment:
+      SALES_DOMAIN_HOST: "0.0.0.0"
+      SALES_DOMAIN_PORT: "8100"
+    ports:
+      - "8100:8100"
+    profiles: ["core"]
+    healthcheck:
+      # A bare TCP connect, not an HTTP/MCP-protocol check: streamable-http
+      # rejects a plain GET, so this only confirms the process is listening.
+      test: ["CMD", "python3", "-c", "import socket; socket.create_connection(('127.0.0.1', 8100), timeout=2)"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+  gateway:
+    build:
+      context: .
+      dockerfile: deploy/docker/Dockerfile
+    command: ["python3", "-m", "emcp_bus.gateway.server"]
+    environment:
+      GATEWAY_HOST: "0.0.0.0"
+      GATEWAY_PORT: "8000"
+      SALES_DOMAIN_URL: "http://sales-domain:8100/mcp"
+    ports:
+      - "8000:8000"
+    profiles: ["core"]
+    depends_on:
+      sales-domain:
+        condition: service_healthy

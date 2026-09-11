@@ -1,0 +1,4 @@
+client_id: sales-write-agent
+profile: Sales.Write
+environment: production
+description: "Sales agent authorized to create/update quotes"

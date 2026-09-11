@@ -1,0 +1,18 @@
+# README.md §7.1
+name: Sales.Approve
+owner: sales-platform
+environment: production
+risk_ceiling: R2
+allowed_tools:
+  - sales.customer.search
+  - sales.quote.get
+  - sales.quote.approve
+  - sales.discount.approve
+restrictions:
+  max_transaction_value: 1000000
+  allowed_regions: ["BR-SP", "BR-RJ"]
+credential_policy:
+  workload_identity: true
+  short_lived: true
+audit:
+  level: full
