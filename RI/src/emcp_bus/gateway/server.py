@@ -15,6 +15,13 @@ not configured for a given deployment, not a bug to work around.
 Fail-closed (README.md §38, EP-05-T06): a PDP that cannot be reached is a
 DENY, not an ALLOW -- see the `PDPUnavailableError` branch in `on_call_tool`.
 
+Routing is resolved per capability through the Enterprise MCP Fabric router
+(EP-06-T01, `emcp_bus.fabric.router.CapabilityRouter`) against the Global
+Capability Registry (EP-02-T03), seeded at startup from `config/capabilities/`
+-- not a hard-coded single downstream. A client's `tools/list` may therefore
+span more than one backend (e.g. Sales + Finance); `tools/call` always
+re-resolves the one backend that specific tool routes to.
+
 Configuration is read from the environment lazily, inside `lifespan()`/
 `build_auth()`, rather than into module-level constants at import time:
 every RI service is one process per deployment in production, so this is
@@ -23,12 +30,15 @@ lifespan runs within one Python process, which the test suite relies on to
 exercise multiple configurations without re-importing this module).
 
 Tracing is automatic (see `common/otel.py`): the SDK's `OpenTelemetryMiddleware`
-correlates every hop without any manual span code here.
+correlates every hop without any manual span code here; `emcp_bus.audit.correlation`
+adds the business-level decision/entitlement/policy ids as span attributes on
+top of that (EP-08-T03).
 """
 
 from __future__ import annotations
 
 import os
+import tempfile
 from collections.abc import AsyncIterator, Awaitable, Callable
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
@@ -36,23 +46,46 @@ from pathlib import Path
 
 import mcp_types as types
 from mcp.client.session import ClientSession
-from mcp.client.streamable_http import streamable_http_client
+from mcp.client.streamable_http import (  # type: ignore[attr-defined]
+    create_mcp_http_client,
+    streamable_http_client,
+)
 from mcp.server.auth.middleware.auth_context import get_access_token
 from mcp.server.auth.provider import TokenVerifier
 from mcp.server.auth.settings import AuthSettings
 from mcp.server.context import ServerRequestContext
 from mcp.server.lowlevel import Server
 from pydantic import AnyHttpUrl
+from starlette.types import ASGIApp
 
+from emcp_bus.approval.service import ApprovalService
+from emcp_bus.audit import events
+from emcp_bus.audit.correlation import (
+    DecisionCorrelation,
+    compute_policy_decision_id,
+    new_decision_id,
+)
+from emcp_bus.audit.sink import AuditSink, JSONLFileAuditSink
 from emcp_bus.common.config import load_yaml_models
 from emcp_bus.common.otel import setup_tracing
+from emcp_bus.downstream.identity import (
+    BackendCredentialProvider,
+    BackendCredentialUnavailableError,
+    UnknownBackendError,
+)
+from emcp_bus.downstream.models import BackendConfig
 from emcp_bus.entitlement.manager import EntitlementManager, UnknownClientError
 from emcp_bus.entitlement.models import ClientProfile
+from emcp_bus.fabric.router import CapabilityRouter, UnroutableCapabilityError
+from emcp_bus.gateway.cache import tools_list_cache_hint
+from emcp_bus.gateway.canonical_request import CanonicalRequestGate
 from emcp_bus.identity.authn import TokenValidator
 from emcp_bus.identity.models import ClientRegistration
 from emcp_bus.identity.token_verifier import MCPTokenVerifier
 from emcp_bus.pdp.client import PDPClient, PDPUnavailableError, compute_policy_version
 from emcp_bus.pdp.models import PDPOutcome
+from emcp_bus.registry.seed import seed_registry
+from emcp_bus.registry.store import RegistryStore
 
 setup_tracing("emcp-gateway")
 
@@ -61,22 +94,22 @@ _REPO_ROOT = Path(__file__).resolve().parents[3]
 
 @dataclass(frozen=True)
 class GatewayConfig:
-    downstream_url: str
     opa_url: str
     config_dir: Path
     oidc_jwks_url: str
     oidc_issuer: str
     oidc_audience: str
+    audit_log_path: str
 
     @classmethod
     def from_env(cls) -> GatewayConfig:
         return cls(
-            downstream_url=os.environ.get("SALES_DOMAIN_URL", "http://127.0.0.1:8100/mcp"),
             opa_url=os.environ.get("OPA_URL", "http://127.0.0.1:8181"),
             config_dir=Path(os.environ.get("EMCP_CONFIG_DIR", str(_REPO_ROOT / "config"))),
             oidc_jwks_url=os.environ.get("OIDC_JWKS_URL", ""),
             oidc_issuer=os.environ.get("OIDC_ISSUER", ""),
             oidc_audience=os.environ.get("OIDC_AUDIENCE", "emcp-gateway"),
+            audit_log_path=os.environ.get("EMCP_AUDIT_LOG_PATH", "/tmp/emcp-audit.jsonl"),
         )
 
     @property
@@ -91,16 +124,47 @@ class GatewayConfig:
     def policies_dir(self) -> Path:
         return self.config_dir / "policies"
 
+    @property
+    def backends_dir(self) -> Path:
+        return self.config_dir / "backends"
+
+    @property
+    def capabilities_dir(self) -> Path:
+        return self.config_dir / "capabilities"
+
 
 @dataclass
 class GatewayState:
     entitlement_manager: EntitlementManager
     pdp: PDPClient
-    downstream_url: str
+    router: CapabilityRouter
+    backend_credentials: BackendCredentialProvider
+    approval_service: ApprovalService
+    audit_sink: AuditSink
+
+
+_current_state: GatewayState | None = None
+"""The live `GatewayState` of whichever app instance is currently running.
+
+Every other per-request need is served by `ctx.lifespan_context`
+(`on_list_tools`/`on_call_tool`); this module-level mirror exists solely so
+an out-of-band approver -- a CLI, an HTTP endpoint, a future Orchestrator
+node (EP-11-T05) -- can reach the *same* `ApprovalService` instance the
+Gateway's own `on_call_tool` consults, since none of those call sites go
+through an MCP request context at all. `get_current_state()` is the
+supported way to read it.
+"""
+
+
+def get_current_state() -> GatewayState:
+    if _current_state is None:
+        raise RuntimeError("Gateway is not running (lifespan has not started)")
+    return _current_state
 
 
 @asynccontextmanager
 async def lifespan(server: Server[GatewayState]) -> AsyncIterator[GatewayState]:
+    global _current_state
     config = GatewayConfig.from_env()
     pdp = PDPClient(
         base_url=config.opa_url, policy_version=compute_policy_version(config.policies_dir)
@@ -111,26 +175,62 @@ async def lifespan(server: Server[GatewayState]) -> AsyncIterator[GatewayState]:
     # Deliberately not try/excepted: a PDP the Gateway cannot sync entitlements
     # to at startup must not come up looking healthy (README.md §38).
     await manager.sync_profiles_to_pdp()
+
+    backend_credentials = BackendCredentialProvider(
+        load_yaml_models(config.backends_dir, BackendConfig)
+    )
+
+    # Fresh Registry per lifespan run (mirrors `manager`/`backend_credentials`
+    # above): a temp file rather than `config_dir`-relative, so repeated
+    # lifespan runs within one test process (see module docstring) never see
+    # another run's stale state. Also not try/excepted: a Registry the
+    # Gateway cannot seed at startup must not come up looking healthy either.
+    registry_fd, registry_db_path_str = tempfile.mkstemp(prefix="emcp-registry-", suffix=".db")
+    os.close(registry_fd)
+    registry_db_path = Path(registry_db_path_str)
+    registry = RegistryStore(registry_db_path)
+    seed_registry(registry, config.capabilities_dir)
+    router = CapabilityRouter(registry, backend_credentials)
+
+    audit_sink = JSONLFileAuditSink(config.audit_log_path)
+
+    state = GatewayState(
+        entitlement_manager=manager,
+        pdp=pdp,
+        router=router,
+        backend_credentials=backend_credentials,
+        approval_service=ApprovalService(audit_sink=audit_sink),
+        audit_sink=audit_sink,
+    )
+    _current_state = state
     try:
-        yield GatewayState(
-            entitlement_manager=manager, pdp=pdp, downstream_url=config.downstream_url
-        )
+        yield state
     finally:
+        _current_state = None
         await pdp.aclose()
+        registry_db_path.unlink(missing_ok=True)
 
 
 async def _with_downstream_session[ResultT](
     downstream_url: str,
+    backend_token: str,
     coro_factory: Callable[[ClientSession], Awaitable[ResultT]],
 ) -> ResultT:
     """Open a fresh downstream connection for one request and run `coro_factory(session)`.
 
-    A connection per call is simpler and safer than a shared long-lived
-    session under concurrent requests; the Enterprise MCP Fabric (EP-06) is
-    where connection pooling/reuse per backend would be introduced later.
+    `backend_token` is the *outbound* credential (EP-07-T01) -- never the
+    inbound MCP Client's own bearer token (README.md §20, ADR-006: no blind
+    token passthrough). A connection per call is simpler and safer than a
+    shared long-lived session under concurrent requests; connection
+    pooling/reuse per backend is a natural extension of the Fabric router
+    (EP-06-T01), not implemented in this milestone.
     """
     async with (
-        streamable_http_client(downstream_url) as (read_stream, write_stream),
+        create_mcp_http_client(headers={"Authorization": f"Bearer {backend_token}"}) as http_client,
+        streamable_http_client(downstream_url, http_client=http_client) as (
+            read_stream,
+            write_stream,
+        ),
         ClientSession(read_stream, write_stream) as session,
     ):
         await session.initialize()
@@ -148,6 +248,10 @@ def _denied(reason_code: str) -> types.CallToolResult:
     )
 
 
+def _request_id_str(ctx: ServerRequestContext[GatewayState]) -> str | None:
+    return str(ctx.request_id) if ctx.request_id is not None else None
+
+
 async def on_list_tools(
     ctx: ServerRequestContext[GatewayState],
     params: types.PaginatedRequestParams | None,
@@ -162,13 +266,42 @@ async def on_list_tools(
     except UnknownClientError:
         return types.ListToolsResult(tools=[])
 
-    downstream_result = await _with_downstream_session(
-        state.downstream_url, lambda session: session.list_tools(params=params)
+    state.audit_sink.emit(
+        events.client_authenticated(
+            client_id=access_token.client_id, mcp_request_id=_request_id_str(ctx)
+        )
     )
-    filtered_tools = [
-        tool for tool in downstream_result.tools if tool.name in resolved.allowed_tools
-    ]
-    return downstream_result.model_copy(update={"tools": filtered_tools})
+
+    # EP-06-T01: query only the backends that actually serve a tool this
+    # client is entitled to, never every registered backend -- e.g. a
+    # Sales.Read client never opens a connection to the Finance backend.
+    all_tools: list[types.Tool] = []
+    for backend_id in sorted(state.router.distinct_backends_for(resolved.allowed_tools)):
+        try:
+            credential = state.backend_credentials.credential_for(backend_id)
+        except (UnknownBackendError, BackendCredentialUnavailableError):
+            continue
+        downstream_result = await _with_downstream_session(
+            credential.url, credential.token, lambda session: session.list_tools(params=params)
+        )
+        all_tools.extend(t for t in downstream_result.tools if t.name in resolved.allowed_tools)
+
+    state.audit_sink.emit(
+        events.tools_list_filtered(
+            client_id=access_token.client_id,
+            profile_name=resolved.profile_name,
+            entitlement_version=resolved.entitlement_version,
+            allowed=len(all_tools),
+            total=len(resolved.allowed_tools),
+        )
+    )
+    # EP-05-T03: see cache.py's module docstring -- `ttl_ms` will not
+    # actually reach a client on this RI's classic-session transport (a
+    # verified SDK/wire-mode constraint, not a bug here), but `cache_scope`
+    # is always "private" regardless, and this is exactly correct if this
+    # Gateway ever adds the stateless per-request (2026-07-28) transport.
+    hint = tools_list_cache_hint()
+    return types.ListToolsResult(tools=all_tools, ttl_ms=hint.ttl_ms, cache_scope=hint.scope)
 
 
 async def on_call_tool(
@@ -185,26 +318,110 @@ async def on_call_tool(
     except UnknownClientError:
         return _denied("UNKNOWN_CLIENT")
 
-    try:
-        decision = await state.pdp.evaluate(
+    arguments = dict(params.arguments or {})
+    correlation = DecisionCorrelation(
+        decision_id=new_decision_id(),
+        policy_decision_id=compute_policy_decision_id(
+            policy_version=state.pdp.policy_version,
             client_profile=resolved.profile_name,
             tool=params.name,
-            arguments=dict(params.arguments or {}),
+            arguments=arguments,
+        ),
+        entitlement_version=resolved.entitlement_version,
+        policy_version=state.pdp.policy_version,
+        mcp_request_id=_request_id_str(ctx),
+    )
+    correlation.record_on_current_span()
+
+    try:
+        decision = await state.pdp.evaluate(
+            client_profile=resolved.profile_name, tool=params.name, arguments=arguments
         )
     except PDPUnavailableError:
+        state.audit_sink.emit(
+            events.pdp_unavailable(client_id=access_token.client_id, tool=params.name)
+        )
         return _denied("PDP_UNAVAILABLE")
 
     if decision.outcome is PDPOutcome.DENY:
+        state.audit_sink.emit(
+            events.tool_call_denied(
+                client_id=access_token.client_id,
+                profile_name=resolved.profile_name,
+                tool=params.name,
+                reason_code=decision.reason_code,
+                correlation=correlation,
+            )
+        )
         return _denied(decision.reason_code)
+
     if decision.outcome is PDPOutcome.REQUIRE_APPROVAL:
-        # EP-14 (human approval workflow) does not exist yet in this milestone
-        # -- fail closed rather than silently upgrading to ALLOW.
-        return _denied(f"REQUIRE_APPROVAL:{decision.reason_code}")
+        try:
+            approved = state.approval_service.check_and_consume(
+                client_profile=resolved.profile_name, tool=params.name, arguments=arguments
+            )
+        except Exception:  # noqa: BLE001 -- EP-14-T03: any approval-service failure is DENY, never ALLOW
+            approved = False
+        if not approved:
+            # Out-of-band from here: an approver calls ApprovalService.grant()
+            # with this approval_id (CLI/API today; EP-11-T05's Orchestrator
+            # interrupt node later) before the caller retries the same call.
+            request = state.approval_service.request(
+                client_profile=resolved.profile_name,
+                tool=params.name,
+                arguments=arguments,
+                reason_code=decision.reason_code,
+            )
+            state.audit_sink.emit(
+                events.tool_call_require_approval(
+                    client_id=access_token.client_id,
+                    profile_name=resolved.profile_name,
+                    tool=params.name,
+                    approval_id=request.approval_id,
+                    correlation=correlation,
+                )
+            )
+            return _denied(f"REQUIRE_APPROVAL:{decision.reason_code}:{request.approval_id}")
+
+    try:
+        route = state.router.route(params.name)
+    except UnroutableCapabilityError:
+        state.audit_sink.emit(
+            events.tool_call_denied(
+                client_id=access_token.client_id,
+                profile_name=resolved.profile_name,
+                tool=params.name,
+                reason_code="UNROUTABLE_CAPABILITY",
+                correlation=correlation,
+            )
+        )
+        return _denied("UNROUTABLE_CAPABILITY")
+
+    if route.backend_type != "mcp":
+        # EP-06-T04: a "rest"/"grpc" backend.type has no seed capability yet
+        # (see fabric/adapters/rest_adapter.py's module docstring) -- fail
+        # closed rather than guess at a dispatch path with no test coverage.
+        state.audit_sink.emit(
+            events.backend_credential_unavailable(
+                client_id=access_token.client_id, tool=params.name, backend=route.backend_id
+            )
+        )
+        return _denied(f"UNSUPPORTED_BACKEND_TYPE:{route.backend_type}")
 
     result = await _with_downstream_session(
-        state.downstream_url, lambda session: session.call_tool(params.name, params.arguments or {})
+        route.url,
+        route.credential_token,
+        lambda session: session.call_tool(params.name, params.arguments or {}),
     )
     if isinstance(result, types.CallToolResult):
+        state.audit_sink.emit(
+            events.tool_call_allowed(
+                client_id=access_token.client_id,
+                profile_name=resolved.profile_name,
+                tool=params.name,
+                correlation=correlation,
+            )
+        )
         return result
     raise TypeError(f"Unexpected downstream result type for tools/call: {type(result)!r}")
 
@@ -246,13 +463,27 @@ def build_auth(
     return auth_settings, token_verifier
 
 
+def build_app(
+    auth_settings: AuthSettings | None,
+    token_verifier: TokenVerifier | None,
+    *,
+    host: str = "127.0.0.1",
+) -> ASGIApp:
+    """The Gateway's real ASGI app: the MCP Server wrapped with EP-05-T08's
+    header/body consistency gate. Used by `main()` and by the test suite, so
+    tests exercise the exact same wiring a deployment runs, not a stripped
+    down variant of it."""
+    app = server.streamable_http_app(host=host, auth=auth_settings, token_verifier=token_verifier)
+    return CanonicalRequestGate(app)
+
+
 def main() -> None:
     import uvicorn
 
     host = os.environ.get("GATEWAY_HOST", "127.0.0.1")
     port = int(os.environ.get("GATEWAY_PORT", "8000"))
     auth_settings, token_verifier = build_auth()
-    app = server.streamable_http_app(host=host, auth=auth_settings, token_verifier=token_verifier)
+    app = build_app(auth_settings, token_verifier, host=host)
     uvicorn.run(app, host=host, port=port, log_level="info")
 
 

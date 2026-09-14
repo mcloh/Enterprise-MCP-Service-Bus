@@ -13,6 +13,7 @@ allowed_tools:
 restrictions:
   max_transaction_value: 500000
   allowed_regions: ["BR-SP", "BR-RJ"]
+  approval_threshold: 100000
 credential_policy:
   workload_identity: true
   short_lived: true

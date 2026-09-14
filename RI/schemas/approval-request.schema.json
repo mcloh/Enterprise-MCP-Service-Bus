@@ -1,0 +1,60 @@
+{
+  "properties": {
+    "approval_id": {
+      "title": "Approval Id",
+      "type": "string"
+    },
+    "arguments_summary": {
+      "additionalProperties": true,
+      "title": "Arguments Summary",
+      "type": "object"
+    },
+    "client_profile": {
+      "title": "Client Profile",
+      "type": "string"
+    },
+    "expires_at": {
+      "format": "date-time",
+      "title": "Expires At",
+      "type": "string"
+    },
+    "operation_hash": {
+      "title": "Operation Hash",
+      "type": "string"
+    },
+    "reason_code": {
+      "title": "Reason Code",
+      "type": "string"
+    },
+    "requested_at": {
+      "format": "date-time",
+      "title": "Requested At",
+      "type": "string"
+    },
+    "status": {
+      "default": "pending",
+      "enum": [
+        "pending",
+        "granted",
+        "denied",
+        "consumed"
+      ],
+      "title": "Status",
+      "type": "string"
+    },
+    "tool": {
+      "title": "Tool",
+      "type": "string"
+    }
+  },
+  "required": [
+    "operation_hash",
+    "client_profile",
+    "tool",
+    "arguments_summary",
+    "reason_code",
+    "expires_at"
+  ],
+  "title": "ApprovalRequest",
+  "type": "object"
+}

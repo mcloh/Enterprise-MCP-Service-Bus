@@ -1,0 +1,12 @@
+name: sales.quote.create
+version: 1.0.0
+domain: sales
+owner: sales-platform
+risk_tier: R2
+side_effects: true
+idempotent: false
+data_classification: [confidential]
+entitlements: [Sales.Write]
+backend:
+  type: mcp
+  service: sales-domain

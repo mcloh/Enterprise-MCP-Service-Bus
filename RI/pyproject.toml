@@ -25,6 +25,13 @@ dev = [
     "mypy>=2.3.1,<3",
     "pytest>=9.1.1,<10",
     "pytest-asyncio>=1.4.0,<2",
+    # Resolves the e2e suite's previously-documented flakiness (RI/README.md):
+    # one process *per test function* means no in-process ASGI server pair
+    # ever shares event-loop/socket state with another test's pair. Verified:
+    # 22/22 e2e tests pass reliably with `--forked`, where the un-forked
+    # suite intermittently failed several. Used by `make test` itself now,
+    # not just CI.
+    "pytest-forked>=1.7.5,<2",
     "types-PyYAML>=6.0.12,<7",
 ]
 

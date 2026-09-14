@@ -37,8 +37,28 @@ ISSUER = "https://keycloak.example/realms/emcp"
 AUDIENCE = "emcp-gateway"
 KID = "test-key-1"
 
-GATEWAY_PORT = 18000
-SALES_PORT = 18100
+_current_gateway_port: int | None = None
+"""Set by `governed_stack` (or a test managing its own stack, via
+`set_current_gateway_port`) for the duration of one test. A *fresh* port
+per test -- rather than a fixed constant -- avoids TIME_WAIT/bind
+contention between one test's `RunningServer.stop()` and the next test's
+bind on the same port, which showed up as intermittent "SSE stream ended
+without a response" failures once enough e2e tests accumulated to make
+that race likely within a single pytest run."""
+
+
+def set_current_gateway_port(port: int | None) -> None:
+    global _current_gateway_port
+    _current_gateway_port = port
+
+
+def _gateway_url() -> str:
+    if _current_gateway_port is None:
+        raise RuntimeError(
+            "No gateway is currently running for this test (see governed_stack fixture "
+            "or set_current_gateway_port)"
+        )
+    return f"http://127.0.0.1:{_current_gateway_port}/mcp"
 
 
 def free_port() -> int:
@@ -180,19 +200,34 @@ async def governed_stack(
 ) -> AsyncIterator[None]:
     """Real OPA + real JWKS-backed OIDC auth, wired into fresh Gateway/Sales
     instances for one test (EP-01/EP-03/EP-04/EP-05 all real, only Keycloak
-    itself is substituted by the JWKS server -- see RI/README.md)."""
-    monkeypatch.setenv("SALES_DOMAIN_URL", f"http://127.0.0.1:{SALES_PORT}/mcp")
+    itself is substituted by the JWKS server -- see RI/README.md).
+
+    Deliberately Sales-only, not Sales+Finance: most tests using this fixture
+    never reach a live backend call for a Finance tool (denied earlier, at
+    entitlement or REQUIRE_APPROVAL), and this file's own flakiness note
+    documents that more in-process ASGI server pairs per test measurably
+    increases the known e2e flakiness rate. `governed_stack_with_finance`
+    below is the (currently two) tests that actually need a live Finance
+    backend -- keeping the blast radius of that cost limited to just those.
+    """
+    gateway_port = free_port()
+    sales_port = free_port()
+
+    monkeypatch.setenv("SALES_DOMAIN_URL", f"http://127.0.0.1:{sales_port}/mcp")
     monkeypatch.setenv("OPA_URL", opa_url)
     monkeypatch.setenv("OIDC_JWKS_URL", jwks_url)
     monkeypatch.setenv("OIDC_ISSUER", ISSUER)
     monkeypatch.setenv("OIDC_AUDIENCE", AUDIENCE)
+    # EP-07: the Gateway's outbound credential to the sales-domain backend --
+    # deliberately a different value/shape than any inbound client token.
+    monkeypatch.setenv("SALES_DOMAIN_SERVICE_TOKEN", "test-sales-domain-backend-credential")
 
     import example_mcp_servers.sales_domain.server as sales_module
 
     sales_config = uvicorn.Config(
         sales_module.server.streamable_http_app(host="127.0.0.1"),
         host="127.0.0.1",
-        port=SALES_PORT,
+        port=sales_port,
         log_level="warning",
     )
     sales_server = RunningServer(sales_config)
@@ -202,20 +237,88 @@ async def governed_stack(
 
     auth_settings, token_verifier = gateway_module.build_auth()
     gateway_config = uvicorn.Config(
-        gateway_module.server.streamable_http_app(
-            host="127.0.0.1", auth=auth_settings, token_verifier=token_verifier
-        ),
+        gateway_module.build_app(auth_settings, token_verifier, host="127.0.0.1"),
         host="127.0.0.1",
-        port=GATEWAY_PORT,
+        port=gateway_port,
         log_level="warning",
     )
     gateway_server = RunningServer(gateway_config)
     await gateway_server.start()
+    set_current_gateway_port(gateway_port)
 
     try:
         yield
     finally:
+        set_current_gateway_port(None)
         await gateway_server.stop()
+        await sales_server.stop()
+
+
+@pytest.fixture
+async def governed_stack_with_finance(
+    monkeypatch: pytest.MonkeyPatch, opa_url: str, jwks_url: str
+) -> AsyncIterator[None]:
+    """Same as `governed_stack`, plus a real Finance domain server (EP-06-T03) --
+    for the handful of tests that need a live Finance backend to actually
+    reach (e.g. proving the Fabric router dispatches Finance capabilities
+    there, or a full approval-then-execute cycle against it)."""
+    gateway_port = free_port()
+    sales_port = free_port()
+    finance_port = free_port()
+
+    monkeypatch.setenv("SALES_DOMAIN_URL", f"http://127.0.0.1:{sales_port}/mcp")
+    monkeypatch.setenv("FINANCE_DOMAIN_URL", f"http://127.0.0.1:{finance_port}/mcp")
+    monkeypatch.setenv("OPA_URL", opa_url)
+    monkeypatch.setenv("OIDC_JWKS_URL", jwks_url)
+    monkeypatch.setenv("OIDC_ISSUER", ISSUER)
+    monkeypatch.setenv("OIDC_AUDIENCE", AUDIENCE)
+    monkeypatch.setenv("SALES_DOMAIN_SERVICE_TOKEN", "test-sales-domain-backend-credential")
+    monkeypatch.setenv("FINANCE_DOMAIN_SERVICE_TOKEN", "test-finance-domain-backend-credential")
+
+    import example_mcp_servers.sales_domain.server as sales_module
+
+    sales_server = RunningServer(
+        uvicorn.Config(
+            sales_module.server.streamable_http_app(host="127.0.0.1"),
+            host="127.0.0.1",
+            port=sales_port,
+            log_level="warning",
+        )
+    )
+    await sales_server.start()
+
+    import example_mcp_servers.finance_domain.server as finance_module
+
+    finance_server = RunningServer(
+        uvicorn.Config(
+            finance_module.server.streamable_http_app(host="127.0.0.1"),
+            host="127.0.0.1",
+            port=finance_port,
+            log_level="warning",
+        )
+    )
+    await finance_server.start()
+
+    import emcp_bus.gateway.server as gateway_module
+
+    auth_settings, token_verifier = gateway_module.build_auth()
+    gateway_server = RunningServer(
+        uvicorn.Config(
+            gateway_module.build_app(auth_settings, token_verifier, host="127.0.0.1"),
+            host="127.0.0.1",
+            port=gateway_port,
+            log_level="warning",
+        )
+    )
+    await gateway_server.start()
+    set_current_gateway_port(gateway_port)
+
+    try:
+        yield
+    finally:
+        set_current_gateway_port(None)
+        await gateway_server.stop()
+        await finance_server.stop()
         await sales_server.stop()
 
 
@@ -232,7 +335,7 @@ async def run_against_gateway[ResultT](
     Gateway defect: production deployments run one process per service.
     """
     headers = {"Authorization": f"Bearer {token}"} if token else None
-    url = f"http://127.0.0.1:{GATEWAY_PORT}/mcp"
+    url = _gateway_url()
     last_error: MCPError | None = None
     for attempt in range(3):
         if attempt:

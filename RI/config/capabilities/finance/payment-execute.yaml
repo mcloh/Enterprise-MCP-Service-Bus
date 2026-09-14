@@ -1,0 +1,16 @@
+# README.md §17 (R3, high impact) + §26 (approval-eligible above Finance.Payments'
+# restrictions.approval_threshold, enforced by config/policies/transaction.rego)
+name: finance.payment.execute
+version: 1.0.0
+domain: finance
+owner: finance-platform
+risk_tier: R3
+side_effects: true
+idempotent: false
+data_classification: [confidential, restricted]
+entitlements: [Finance.Payments]
+backend:
+  type: mcp
+  service: finance-domain
+approval:
+  required: true

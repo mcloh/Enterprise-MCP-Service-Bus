@@ -1,0 +1,52 @@
+name: RI CI
+
+# EP-00-T03 (docs/RI-PLANNING.md): lint, type-check, validate every config/
+# YAML against its JSON Schema/Pydantic model, then run the test suite.
+# Acceptance criterion: a YAML under config/ that violates its schema must
+# fail CI before any integration test runs -- `validate-schemas` is
+# deliberately its own early step, ahead of `test`, not folded into it.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+defaults:
+  run:
+    working-directory: RI
+
+jobs:
+  ci:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install OPA (static binary, no Docker needed -- PDP for real e2e tests)
+        run: |
+          curl -sL -o /usr/local/bin/opa "https://openpolicyagent.org/downloads/v1.20.2/opa_linux_amd64_static"
+          chmod +x /usr/local/bin/opa
+          opa version
+
+      - name: Install project (editable, dev extras)
+        run: make install
+
+      - name: Lint (ruff)
+        run: make lint
+
+      - name: Type-check (mypy --strict)
+        run: make typecheck
+
+      - name: Validate config/ YAML against its schema
+        run: make validate-schemas
+
+      - name: Schemas/*.schema.json are up to date with the Pydantic models
+        run: |
+          make export-schemas
+          git diff --exit-code -- schemas/
+
+      - name: Test suite (real OPA/JWKS/Docker/Keycloak; --forked, see RI/README.md)
+        run: .venv/bin/python3 -m pytest -q --forked

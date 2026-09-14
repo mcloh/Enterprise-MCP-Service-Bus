@@ -1,0 +1,33 @@
+{
+  "$defs": {
+    "PDPOutcome": {
+      "enum": [
+        "ALLOW",
+        "DENY",
+        "REQUIRE_APPROVAL"
+      ],
+      "title": "PDPOutcome",
+      "type": "string"
+    }
+  },
+  "properties": {
+    "outcome": {
+      "$ref": "#/$defs/PDPOutcome"
+    },
+    "policy_version": {
+      "title": "Policy Version",
+      "type": "string"
+    },
+    "reason_code": {
+      "title": "Reason Code",
+      "type": "string"
+    }
+  },
+  "required": [
+    "outcome",
+    "policy_version",
+    "reason_code"
+  ],
+  "title": "PDPDecision",
+  "type": "object"
+}

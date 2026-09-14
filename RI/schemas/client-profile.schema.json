@@ -1,0 +1,148 @@
+{
+  "$defs": {
+    "AuditPolicy": {
+      "properties": {
+        "level": {
+          "default": "full",
+          "enum": [
+            "none",
+            "standard",
+            "full"
+          ],
+          "title": "Level",
+          "type": "string"
+        }
+      },
+      "title": "AuditPolicy",
+      "type": "object"
+    },
+    "CredentialPolicy": {
+      "properties": {
+        "short_lived": {
+          "default": true,
+          "title": "Short Lived",
+          "type": "boolean"
+        },
+        "workload_identity": {
+          "default": true,
+          "title": "Workload Identity",
+          "type": "boolean"
+        }
+      },
+      "title": "CredentialPolicy",
+      "type": "object"
+    },
+    "RiskTier": {
+      "description": "Capability/client risk classification (README.md \u00a717).\n\nR0 discovery/public, R1 read, R2 write, R3 high-impact (approval-eligible),\nR4 destructive/restricted. The *same* enum is used for both a capability\nmanifest's `risk_tier` (EP-02-T01) and a client profile's `risk_ceiling`\n(EP-04-T01) so entitlement resolution (EP-04-T02) can compare them\ndirectly instead of maintaining two parallel classifications.",
+      "enum": [
+        "R0",
+        "R1",
+        "R2",
+        "R3",
+        "R4"
+      ],
+      "title": "RiskTier",
+      "type": "string"
+    },
+    "TransactionRestrictions": {
+      "description": "Argument/resource-level bounds enforced by the Transaction Policy (EP-03-T03).\n\nThese are *hints* carried alongside the profile for the PDP's Rego data\ndocument -- the PDP, not this model, is the authority that actually\nenforces them (README.md \u00a76.5.B, \u00a725 Passo 2).",
+      "properties": {
+        "allowed_regions": {
+          "anyOf": [
+            {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Allowed Regions"
+        },
+        "approval_threshold": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Above this `arguments.amount`, the transaction policy returns REQUIRE_APPROVAL instead of ALLOW (README.md \u00a726 example: payment.execute < 10k ALLOW, >= 10k REQUIRE_APPROVAL).",
+          "title": "Approval Threshold"
+        },
+        "max_transaction_value": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Max Transaction Value"
+        }
+      },
+      "title": "TransactionRestrictions",
+      "type": "object"
+    }
+  },
+  "description": "A governed client profile (README.md \u00a741 example).",
+  "properties": {
+    "allowed_tools": {
+      "description": "Canonical <domain>.<capability> tool names (README.md \u00a739).",
+      "items": {
+        "type": "string"
+      },
+      "minItems": 1,
+      "title": "Allowed Tools",
+      "type": "array"
+    },
+    "audit": {
+      "$ref": "#/$defs/AuditPolicy"
+    },
+    "credential_policy": {
+      "$ref": "#/$defs/CredentialPolicy"
+    },
+    "environment": {
+      "default": "production",
+      "enum": [
+        "dev",
+        "ci",
+        "production"
+      ],
+      "title": "Environment",
+      "type": "string"
+    },
+    "name": {
+      "description": "e.g. \"Sales.Read\", \"Finance.Payments\" (README.md \u00a77.1).",
+      "title": "Name",
+      "type": "string"
+    },
+    "owner": {
+      "title": "Owner",
+      "type": "string"
+    },
+    "restrictions": {
+      "$ref": "#/$defs/TransactionRestrictions"
+    },
+    "risk_ceiling": {
+      "$ref": "#/$defs/RiskTier"
+    }
+  },
+  "required": [
+    "name",
+    "owner",
+    "risk_ceiling",
+    "allowed_tools"
+  ],
+  "title": "ClientProfile",
+  "type": "object"
+}

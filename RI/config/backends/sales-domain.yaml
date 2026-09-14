@@ -1,0 +1,8 @@
+backend: sales-domain
+# Fabric router endpoint (EP-06-T01). ${VAR:-default} so `make dev`/tests work
+# against 127.0.0.1 without any .env, while docker-compose.yml's SALES_DOMAIN_URL
+# points at the compose-internal service DNS name instead.
+url: ${SALES_DOMAIN_URL:-http://127.0.0.1:8100/mcp}
+audience: sales-domain-service
+credential_mode: service_account
+service_account_token_env_var: SALES_DOMAIN_SERVICE_TOKEN

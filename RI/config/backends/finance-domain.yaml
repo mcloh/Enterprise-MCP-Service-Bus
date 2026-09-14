@@ -1,0 +1,5 @@
+backend: finance-domain
+url: ${FINANCE_DOMAIN_URL:-http://127.0.0.1:8101/mcp}
+audience: finance-domain-service
+credential_mode: service_account
+service_account_token_env_var: FINANCE_DOMAIN_SERVICE_TOKEN

@@ -1,0 +1,12 @@
+name: finance.payment.create
+version: 1.0.0
+domain: finance
+owner: finance-platform
+risk_tier: R2
+side_effects: true
+idempotent: false
+data_classification: [confidential, restricted]
+entitlements: [Finance.Payments]
+backend:
+  type: mcp
+  service: finance-domain

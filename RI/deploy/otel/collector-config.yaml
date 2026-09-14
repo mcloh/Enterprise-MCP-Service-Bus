@@ -1,0 +1,29 @@
+# EP-08-T04: minimal OTel Collector config for local development.
+#
+# RI services export OTLP/HTTP to this collector (OTEL_EXPORTER_OTLP_ENDPOINT,
+# common/otel.py); the collector forwards to Jaeger's own OTLP/gRPC receiver
+# for the local `jaeger` UI (docker-compose.yml, `observability` profile), and
+# also logs a basic summary of every batch to its own stdout for a quick
+# sanity check without opening the Jaeger UI.
+
+receivers:
+  otlp:
+    protocols:
+      http:
+        endpoint: 0.0.0.0:4318
+      grpc:
+        endpoint: 0.0.0.0:4317
+
+exporters:
+  otlp:
+    endpoint: jaeger:4317
+    tls:
+      insecure: true
+  debug:
+    verbosity: basic
+
+service:
+  pipelines:
+    traces:
+      receivers: [otlp]
+      exporters: [otlp, debug]

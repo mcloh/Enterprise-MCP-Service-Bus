@@ -1,19 +1,74 @@
 # EP-00-T04 (walking skeleton) + EP-16-T01 (grows into the full stack).
 #
-# `core` profile = M0: gateway + one example MCP server, static routing, no
-# enforcement yet. Later milestones add services under additional profiles
-# (`identity`, `policy`, `observability`, `llm-observability`, ...) so `docker
-# compose --profile core up` stays cheap through M0/M1 instead of requiring
-# the whole stack (Keycloak, OPA, Langfuse, ...) just to see the walking
-# skeleton trace.
+# `core` profile = the minimum that actually runs: gateway + sales-domain +
+# finance-domain + OPA. OPA stopped being optional as of M1 (EP-03/EP-05-T06):
+# the Gateway's `lifespan()` fails closed at startup if it cannot sync
+# entitlements to a PDP, so "gateway without OPA" is not a smaller working
+# stack, it's a Gateway that refuses to start (README.md §38) -- by design,
+# not an oversight. `identity` profile (EP-01-T01) adds a real Keycloak with
+# the realm this RI's client registrations expect -- opt-in via `.env` (see
+# `.env.example`), since the Gateway's "no OIDC provider configured" mode
+# (deny-by-default via handler-level checks) is just as valid a deployment
+# choice as configuring one (see gateway/server.py's module docstring).
+# `observability` profile (EP-08-T04) adds a real OTel Collector + Jaeger.
 #
-# NOT executed against a real Docker daemon in the session this was authored
-# in (no `docker` binary in that sandbox) -- validated instead by running the
-# same two processes directly on the host (see RI/README.md). Please run
-# `docker compose --profile core up --build` on first use and report back if
-# anything needs adjusting.
+# EP-05-T07 (anti-bypass): `opa`, `sales-domain` and `finance-domain`
+# deliberately publish no host port below -- on a real Docker host, that
+# already means nothing outside the compose network can reach them at all
+# (Docker only exposes a container port past the host via `ports:`); only
+# `gateway` does. The domain servers add a second, in-process layer on top
+# (`emcp_bus.audit.bypass_detection.BackendCredentialGate`, applied when
+# `main()` runs, i.e. exactly this deployment): a request lacking the
+# Gateway's own outbound service credential is rejected even if network
+# segmentation were ever misconfigured. See RI/README.md, "O que foi
+# validado com Docker", for exactly what was run and the two real bugs this
+# caught (Dockerfile missing `COPY config`; `opa`'s healthcheck relying on a
+# `wget` the official image doesn't ship).
 
 services:
+  opa:
+    image: openpolicyagent/opa:1.20.2
+    command: ["run", "--server", "--addr", "0.0.0.0:8181", "/policies"]
+    volumes:
+      - ./config/policies:/policies:ro
+    profiles: ["core"]
+    # No host port published (EP-05-T07) -- only `gateway`, on the same
+    # compose network, ever reaches this service.
+    # No HEALTHCHECK either: the official image is a scratch/distroless-style
+    # build with only the `opa` binary -- no shell, wget, curl or nc to probe
+    # itself with (confirmed by `docker exec`: "sh": executable file not
+    # found). `gateway` below compensates with `service_started` +
+    # `restart: on-failure`, which is also just the fail-closed behavior
+    # (README.md §38) working as intended: a Gateway that starts before OPA
+    # is actually accepting connections refuses to come up and gets retried,
+    # rather than silently caching an empty entitlement set.
+
+  keycloak:
+    image: quay.io/keycloak/keycloak:26.7.3
+    command: ["start-dev", "--import-realm"]
+    environment:
+      KC_BOOTSTRAP_ADMIN_USERNAME: admin
+      KC_BOOTSTRAP_ADMIN_PASSWORD: admin
+      # Fixed so the `iss` claim on every issued token is always
+      # `http://keycloak:8080/realms/emcp`, regardless of whether the caller
+      # reached Keycloak via the container network (`keycloak:8080`, what the
+      # Gateway uses to validate) or the host-mapped port (`127.0.0.1:8080`,
+      # e.g. to fetch a token for manual testing) -- without this, Keycloak
+      # derives `iss` from the request's own Host header, so a token fetched
+      # from the host would fail the Gateway's issuer check.
+      KC_HOSTNAME: keycloak
+      KC_HOSTNAME_STRICT: "false"
+    volumes:
+      - ./deploy/keycloak/realm-export.json:/opt/keycloak/data/import/realm-export.json:ro
+    ports:
+      - "8080:8080"
+    profiles: ["identity"]
+    # Same reasoning as `opa`: `start-dev` is a JVM/Quarkus dev-mode image
+    # with no lightweight in-container probe available out of the box, and
+    # ~15-20s cold start (schema init + realm import) makes a short
+    # healthcheck interval noisy. `gateway`'s own `restart: on-failure`
+    # covers the startup race the same way it does for `opa`.
+
   sales-domain:
     build:
       context: .
@@ -22,13 +77,32 @@ services:
     environment:
       SALES_DOMAIN_HOST: "0.0.0.0"
       SALES_DOMAIN_PORT: "8100"
-    ports:
-      - "8100:8100"
+      SALES_DOMAIN_SERVICE_TOKEN: "dev-sales-domain-service-token"
+      EMCP_AUDIT_LOG_PATH: "/tmp/emcp-audit.jsonl"
     profiles: ["core"]
+    # No host port published (EP-05-T07) -- see module-level comment above.
     healthcheck:
       # A bare TCP connect, not an HTTP/MCP-protocol check: streamable-http
       # rejects a plain GET, so this only confirms the process is listening.
       test: ["CMD", "python3", "-c", "import socket; socket.create_connection(('127.0.0.1', 8100), timeout=2)"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+  finance-domain:
+    build:
+      context: .
+      dockerfile: deploy/docker/Dockerfile
+    command: ["python3", "-m", "example_mcp_servers.finance_domain.server"]
+    environment:
+      FINANCE_DOMAIN_HOST: "0.0.0.0"
+      FINANCE_DOMAIN_PORT: "8101"
+      FINANCE_DOMAIN_SERVICE_TOKEN: "dev-finance-domain-service-token"
+      EMCP_AUDIT_LOG_PATH: "/tmp/emcp-audit.jsonl"
+    profiles: ["core"]
+    # No host port published (EP-05-T07) -- see module-level comment above.
+    healthcheck:
+      test: ["CMD", "python3", "-c", "import socket; socket.create_connection(('127.0.0.1', 8101), timeout=2)"]
       interval: 5s
       timeout: 3s
       retries: 5
@@ -42,9 +116,49 @@ services:
       GATEWAY_HOST: "0.0.0.0"
       GATEWAY_PORT: "8000"
       SALES_DOMAIN_URL: "http://sales-domain:8100/mcp"
+      FINANCE_DOMAIN_URL: "http://finance-domain:8101/mcp"
+      OPA_URL: "http://opa:8181"
+      SALES_DOMAIN_SERVICE_TOKEN: "dev-sales-domain-service-token"
+      FINANCE_DOMAIN_SERVICE_TOKEN: "dev-finance-domain-service-token"
+      EMCP_AUDIT_LOG_PATH: "/tmp/emcp-audit.jsonl"
+      # Empty (default) unless set in `.env`/the shell environment before
+      # `docker compose --profile core --profile identity up`: the Gateway
+      # then runs in its "no OIDC provider configured" mode -- deny-by-default
+      # via handler-level checks instead of the SDK's RequireAuthMiddleware
+      # (see gateway/server.py's module docstring and `build_auth`). Set all
+      # three (see `.env.example`) to point at the `keycloak` service above.
+      OIDC_JWKS_URL: "${OIDC_JWKS_URL:-}"
+      OIDC_ISSUER: "${OIDC_ISSUER:-}"
+      OIDC_AUDIENCE: "${OIDC_AUDIENCE:-emcp-gateway}"
+      # EP-08-T04: empty (default) exports traces to stdout via
+      # ConsoleSpanExporter; set to "http://otel-collector:4318" (with
+      # `--profile observability`) to export real OTLP traces instead.
+      OTEL_EXPORTER_OTLP_ENDPOINT: "${OTEL_EXPORTER_OTLP_ENDPOINT:-}"
     ports:
       - "8000:8000"
     profiles: ["core"]
+    restart: on-failure:5
     depends_on:
       sales-domain:
         condition: service_healthy
+      finance-domain:
+        condition: service_healthy
+      opa:
+        condition: service_started
+
+  otel-collector:
+    image: otel/opentelemetry-collector-contrib:0.114.0
+    command: ["--config=/etc/otel-collector-config.yaml"]
+    volumes:
+      - ./deploy/otel/collector-config.yaml:/etc/otel-collector-config.yaml:ro
+    profiles: ["observability"]
+    # No host port published -- only the RI services (pointed at it via
+    # OTEL_EXPORTER_OTLP_ENDPOINT above) and `jaeger` need to reach it.
+
+  jaeger:
+    image: jaegertracing/all-in-one:1.62.0
+    environment:
+      COLLECTOR_OTLP_ENABLED: "true"
+    ports:
+      - "16686:16686" # Jaeger UI
+    profiles: ["observability"]

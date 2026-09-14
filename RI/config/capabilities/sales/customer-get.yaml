@@ -1,0 +1,12 @@
+name: sales.customer.get
+version: 1.0.0
+domain: sales
+owner: sales-platform
+risk_tier: R1
+side_effects: false
+idempotent: true
+data_classification: [internal]
+entitlements: [Sales.Read]
+backend:
+  type: mcp
+  service: sales-domain

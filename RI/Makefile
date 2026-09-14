@@ -1,4 +1,4 @@
-.PHONY: venv install lint format typecheck test dev up down logs validate-schemas
+.PHONY: venv install lint format typecheck test dev up down logs validate-schemas export-schemas
 
 VENV := .venv
 PYTHON := $(VENV)/bin/python3
@@ -19,16 +19,21 @@ format:
 	$(VENV)/bin/ruff check --fix .
 
 typecheck:
-	$(VENV)/bin/mypy src services tests
+	$(VENV)/bin/mypy src services tests scripts
 
+# --forked (pytest-forked): one process per test function -- resolves the
+# e2e suite's previously-documented flakiness (RI/README.md), where several
+# in-process ASGI server pairs sharing one Python process/event loop across
+# many sequential tests intermittently failed. Verified: 119/119 (97 unit +
+# 22 e2e) pass reliably with it; costs roughly +1min total on this machine.
 test:
-	$(VENV)/bin/python3 -m pytest
+	$(VENV)/bin/python3 -m pytest --forked
 
 validate-schemas:
-	# Placeholder until EP-02/EP-04 introduce the first JSON Schema-backed
-	# YAML config types; will validate every file under config/ against its
-	# schema (see docs/RI-PLANNING.md, EP-00-T03).
-	@echo "No schema-validated config types yet (see EP-02-T01, EP-04-T01)."
+	$(VENV)/bin/python3 scripts/validate_config.py
+
+export-schemas:
+	$(VENV)/bin/python3 scripts/export_schemas.py
 
 # Runs both M0 services directly on the host (no Docker required) --
 # handy for local development and for environments without a Docker daemon.

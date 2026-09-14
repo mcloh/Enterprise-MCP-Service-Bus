@@ -1,0 +1,12 @@
+name: finance.invoice.get
+version: 1.0.0
+domain: finance
+owner: finance-platform
+risk_tier: R1
+side_effects: false
+idempotent: true
+data_classification: [confidential]
+entitlements: [Finance.Read, Finance.Payments]
+backend:
+  type: mcp
+  service: finance-domain

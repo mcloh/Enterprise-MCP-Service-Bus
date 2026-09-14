@@ -1,0 +1,75 @@
+{
+  "realm": "emcp",
+  "enabled": true,
+  "clients": [
+    {
+      "clientId": "sales-read-agent",
+      "name": "Sales.Read agent (README.md §7.1)",
+      "enabled": true,
+      "protocol": "openid-connect",
+      "publicClient": false,
+      "standardFlowEnabled": false,
+      "directAccessGrantsEnabled": false,
+      "serviceAccountsEnabled": true,
+      "secret": "dev-sales-read-agent-secret",
+      "protocolMappers": [
+        {
+          "name": "emcp-gateway-audience",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-audience-mapper",
+          "config": {
+            "included.custom.audience": "emcp-gateway",
+            "id.token.claim": "false",
+            "access.token.claim": "true"
+          }
+        }
+      ]
+    },
+    {
+      "clientId": "sales-write-agent",
+      "name": "Sales.Write agent (README.md §7.1)",
+      "enabled": true,
+      "protocol": "openid-connect",
+      "publicClient": false,
+      "standardFlowEnabled": false,
+      "directAccessGrantsEnabled": false,
+      "serviceAccountsEnabled": true,
+      "secret": "dev-sales-write-agent-secret",
+      "protocolMappers": [
+        {
+          "name": "emcp-gateway-audience",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-audience-mapper",
+          "config": {
+            "included.custom.audience": "emcp-gateway",
+            "id.token.claim": "false",
+            "access.token.claim": "true"
+          }
+        }
+      ]
+    },
+    {
+      "clientId": "finance-payments-agent",
+      "name": "Finance.Payments agent (README.md §7.2)",
+      "enabled": true,
+      "protocol": "openid-connect",
+      "publicClient": false,
+      "standardFlowEnabled": false,
+      "directAccessGrantsEnabled": false,
+      "serviceAccountsEnabled": true,
+      "secret": "dev-finance-payments-agent-secret",
+      "protocolMappers": [
+        {
+          "name": "emcp-gateway-audience",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-audience-mapper",
+          "config": {
+            "included.custom.audience": "emcp-gateway",
+            "id.token.claim": "false",
+            "access.token.claim": "true"
+          }
+        }
+      ]
+    }
+  ]
+}

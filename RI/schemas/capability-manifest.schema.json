@@ -1,0 +1,199 @@
+{
+  "$defs": {
+    "ApprovalPolicy": {
+      "properties": {
+        "required": {
+          "default": false,
+          "title": "Required",
+          "type": "boolean"
+        }
+      },
+      "title": "ApprovalPolicy",
+      "type": "object"
+    },
+    "BackendRef": {
+      "description": "Where the Fabric (EP-06-T01) routes a capability once authorized.",
+      "properties": {
+        "operation": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Informational, e.g. 'GET /v2/customers/{id}' (README.md \u00a76.8).",
+          "title": "Operation"
+        },
+        "service": {
+          "description": "Adapter/service id the Fabric router resolves, e.g. 'sales-domain'.",
+          "title": "Service",
+          "type": "string"
+        },
+        "type": {
+          "default": "mcp",
+          "enum": [
+            "rest",
+            "mcp",
+            "grpc"
+          ],
+          "title": "Type",
+          "type": "string"
+        }
+      },
+      "required": [
+        "service"
+      ],
+      "title": "BackendRef",
+      "type": "object"
+    },
+    "DataClassification": {
+      "enum": [
+        "public",
+        "internal",
+        "confidential",
+        "restricted"
+      ],
+      "title": "DataClassification",
+      "type": "string"
+    },
+    "LifecycleInfo": {
+      "properties": {
+        "status": {
+          "$ref": "#/$defs/LifecycleStatus",
+          "default": "nominate"
+        },
+        "sunset_after": {
+          "anyOf": [
+            {
+              "format": "date",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Sunset After"
+        }
+      },
+      "title": "LifecycleInfo",
+      "type": "object"
+    },
+    "LifecycleStatus": {
+      "description": "Registry governance lifecycle (README.md \u00a723).",
+      "enum": [
+        "nominate",
+        "review",
+        "register",
+        "active",
+        "deprecated",
+        "retired"
+      ],
+      "title": "LifecycleStatus",
+      "type": "string"
+    },
+    "ObservabilityPolicy": {
+      "properties": {
+        "audit_level": {
+          "default": "full",
+          "enum": [
+            "none",
+            "standard",
+            "full"
+          ],
+          "title": "Audit Level",
+          "type": "string"
+        }
+      },
+      "title": "ObservabilityPolicy",
+      "type": "object"
+    },
+    "RiskTier": {
+      "description": "Capability/client risk classification (README.md \u00a717).\n\nR0 discovery/public, R1 read, R2 write, R3 high-impact (approval-eligible),\nR4 destructive/restricted. The *same* enum is used for both a capability\nmanifest's `risk_tier` (EP-02-T01) and a client profile's `risk_ceiling`\n(EP-04-T01) so entitlement resolution (EP-04-T02) can compare them\ndirectly instead of maintaining two parallel classifications.",
+      "enum": [
+        "R0",
+        "R1",
+        "R2",
+        "R3",
+        "R4"
+      ],
+      "title": "RiskTier",
+      "type": "string"
+    }
+  },
+  "properties": {
+    "approval": {
+      "$ref": "#/$defs/ApprovalPolicy"
+    },
+    "backend": {
+      "$ref": "#/$defs/BackendRef"
+    },
+    "data_classification": {
+      "items": {
+        "$ref": "#/$defs/DataClassification"
+      },
+      "title": "Data Classification",
+      "type": "array"
+    },
+    "domain": {
+      "title": "Domain",
+      "type": "string"
+    },
+    "entitlements": {
+      "description": "ClientProfile names required to see/call this capability (EP-04).",
+      "items": {
+        "type": "string"
+      },
+      "minItems": 1,
+      "title": "Entitlements",
+      "type": "array"
+    },
+    "idempotent": {
+      "title": "Idempotent",
+      "type": "boolean"
+    },
+    "lifecycle": {
+      "$ref": "#/$defs/LifecycleInfo"
+    },
+    "name": {
+      "description": "Canonical '<domain>.<capability>' name (README.md \u00a739).",
+      "title": "Name",
+      "type": "string"
+    },
+    "observability": {
+      "$ref": "#/$defs/ObservabilityPolicy"
+    },
+    "owner": {
+      "title": "Owner",
+      "type": "string"
+    },
+    "risk_tier": {
+      "$ref": "#/$defs/RiskTier"
+    },
+    "side_effects": {
+      "title": "Side Effects",
+      "type": "boolean"
+    },
+    "version": {
+      "description": "SemVer, e.g. '1.2.0' (README.md \u00a740).",
+      "title": "Version",
+      "type": "string"
+    }
+  },
+  "required": [
+    "name",
+    "version",
+    "domain",
+    "owner",
+    "risk_tier",
+    "side_effects",
+    "idempotent",
+    "entitlements",
+    "backend"
+  ],
+  "title": "CapabilityManifest",
+  "type": "object"
+}

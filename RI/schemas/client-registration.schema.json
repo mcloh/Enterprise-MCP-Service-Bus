@@ -1,0 +1,40 @@
+{
+  "properties": {
+    "client_id": {
+      "title": "Client Id",
+      "type": "string"
+    },
+    "description": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Description"
+    },
+    "environment": {
+      "default": "production",
+      "enum": [
+        "dev",
+        "ci",
+        "production"
+      ],
+      "title": "Environment",
+      "type": "string"
+    },
+    "profile": {
+      "title": "Profile",
+      "type": "string"
+    }
+  },
+  "required": [
+    "client_id",
+    "profile"
+  ],
+  "title": "ClientRegistration",
+  "type": "object"
+}
