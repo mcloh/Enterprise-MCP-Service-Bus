@@ -2,8 +2,8 @@
 
 A deterministic, rules-over-synthetic-attributes stub -- not clustering, not
 a trained model, not a proprietary taxonomy (P7: this RI does not attempt
-"real" clustering without a real dataset, see docs/RI-PLANNING.md's gap
-resolution). `ProfileIntelligenceProvider` is a `Protocol` so a production
+"real" clustering without a real dataset, see `RI/docs/Assumptions.md`).
+`ProfileIntelligenceProvider` is a `Protocol` so a production
 fork can swap in a real ML-backed implementation without touching any
 consumer (the Offering Filter, EP-10) -- the contract is `ProfileView` in,
 `ProfileView` out.

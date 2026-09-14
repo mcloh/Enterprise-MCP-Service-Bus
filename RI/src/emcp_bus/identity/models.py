@@ -2,7 +2,7 @@
 
 Maps an authenticated OAuth2 client identity (the `client_id`/`azp` claim a
 validated access token carries -- see EP-01-T03) to exactly one client
-profile (EP-04). This indirection is what lets `docs/RI-PLANNING.md`'s §18
+profile (EP-04). This indirection is what lets README.md's §18
 rule ("share a client only if all sharing agents can legitimately carry the
 same ceiling") be expressed as data instead of code: two client_ids pointing
 at the same profile are an explicit, auditable sharing decision.

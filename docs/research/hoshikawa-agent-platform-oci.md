@@ -1,6 +1,6 @@
 # Pesquisa: Agent Platform OCI (Christiano Hoshikawa) como referência Python/LangGraph/Langfuse
 
-> Fonte: https://github.com/hoshikawa2/agent_platform_oci (README + SPEC-001, 002, 003, 004, 007, 012, 018). Analisado em 2026-09-11 para fechar as lacunas G2/G8 do [`../RI-PLANNING.md`](../RI-PLANNING.md). Referenciado por ADR-022/ADR-023.
+> Fonte: https://github.com/hoshikawa2/agent_platform_oci (README + SPEC-001, 002, 003, 004, 007, 012, 018). Analisado em 2026-09-11 para fundamentar as decisões registradas em [`ADR-022`](../adr/ADR-022-referencia-hoshikawa-agent-platform-oci.md)/[`ADR-023`](../adr/ADR-023-autorizacao-nunca-vem-do-payload.md) (ver também [`../../RI/docs/Assumptions.md`](../../RI/docs/Assumptions.md)). Referenciado por ADR-022/ADR-023.
 >
 > **Escopo desta pesquisa**: extrair o padrão *operacional* de LangGraph/Langfuse/MCP daquele projeto para a camada de implementação Python da nossa RI. O núcleo de segurança (PEP/PDP/Client-Bound Entitlement) da nossa arquitetura permanece 100% definido pelo `README.md` na raiz deste repositório — nunca pelo projeto pesquisado aqui.
 

@@ -10,8 +10,8 @@ the `mcp` SDK's built-in `OpenTelemetryMiddleware` (on by default on every
 `Server`/`MCPServer`): it injects/extracts standard W3C `traceparent` into the
 JSON-RPC `_meta` field around every request, so a single trace_id spans both
 processes without any extra instrumentation here -- this is the concrete,
-checkable form of the M0 acceptance criterion in docs/RI-PLANNING.md ("um
-único trace_id conecta Gateway -> Fabric -> backend mock"), verified in
+checkable form of the M0 acceptance criterion ("um único trace_id conecta
+Gateway -> Fabric -> backend mock"), verified in
 tests/e2e/test_walking_skeleton.py.
 
 `setup_tracing` registers one *process-global* TracerProvider via

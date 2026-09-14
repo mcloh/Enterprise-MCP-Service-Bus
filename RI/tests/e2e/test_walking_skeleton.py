@@ -1,5 +1,5 @@
 """M0 walking skeleton, now exercised through M1's real enforcement chain
-(docs/RI-PLANNING.md, Marco M0 + M1: EP-01/EP-03/EP-04/EP-05).
+(Marco M0 + M1: EP-01/EP-03/EP-04/EP-05).
 
 Client -> Gateway (real OIDC auth + real OPA-backed entitlement) -> (static
 routing) -> example Sales MCP server -> response, over real HTTP
@@ -101,5 +101,5 @@ async def test_a_single_trace_id_correlates_gateway_and_backend_spans(
         "Expected at least one SERVER 'tools/call' span for the gateway hop and one "
         f"for the backend hop, got {len(server_tool_call_spans)}: "
         f"{[s.name for s in server_tool_call_spans]} -- see Marco M0 acceptance "
-        "criterion in docs/RI-PLANNING.md"
+        "criterion in RI/docs/AS-BUILT.md"
     )

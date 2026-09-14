@@ -1,8 +1,8 @@
 """Reference `NBADecisionModel` (EP-11-T03): deterministic rules/priority
 over `DecisionContext.filtered_offerings` -- not an AI model, not
 clustering. See `nba_model.py`'s module docstring for the pluggable
-interface a real ranking model would implement instead, and P7
-(docs/RI-PLANNING.md) for why this RI doesn't attempt "real" ranking without
+interface a real ranking model would implement instead, and
+`RI/docs/Assumptions.md` for why this RI doesn't attempt "real" ranking without
 a real dataset.
 """
 

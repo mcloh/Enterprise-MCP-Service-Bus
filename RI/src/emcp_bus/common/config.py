@@ -2,7 +2,7 @@
 
 Every declarative config type in the RI (client profiles, capability manifests,
 policies, ...) is loaded through :func:`load_yaml_model`, so secrets never live
-as literal values in a committed YAML file (see docs/RI-PLANNING.md, EP-00-T05):
+as literal values in a committed YAML file (EP-00-T05):
 a value written as ``${VAR_NAME}`` or ``${VAR_NAME:-default}`` is resolved from
 the environment at load time, and a value that still looks like an unresolved
 placeholder after interpolation is treated as a configuration error.

@@ -1,7 +1,7 @@
 # ADR-012: Entitlement Manager como autoridade unica de MaximumEntitlement
 
 **Status:** Aceito.
-**Fonte:** `docs/RI-PLANNING.md` §8.4 (tabela de ADRs), linha ADR-012 — gerado a partir dela por EP-16-T03. Onde a RI tem um componente/teste concreto implementando a decisão, este documento aponta para ele; a tabela em si continua a referência primária e mais atualizada.
+**Fonte:** este ADR é o registro canônico desta decisão — não é mais gerado a partir de `docs/RI-PLANNING.md` (removido do repositório após a conclusão do marco M4; histórico preservado no git). Para contexto de implementação e validação, ver `RI/docs/AS-BUILT.md` e, quando aplicável, o contrato relevante em `RI/docs/interfaces/`.
 
 ## Contexto
 

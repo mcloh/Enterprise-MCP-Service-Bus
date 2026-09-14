@@ -1,6 +1,6 @@
 name: RI CI
 
-# EP-00-T03 (docs/RI-PLANNING.md): lint, type-check, validate every config/
+# EP-00-T03: lint, type-check, validate every config/
 # YAML against its JSON Schema/Pydantic model, then run the test suite.
 # Acceptance criterion: a YAML under config/ that violates its schema must
 # fail CI before any integration test runs -- `validate-schemas` is

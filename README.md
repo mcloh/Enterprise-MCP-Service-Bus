@@ -7,7 +7,7 @@
 
 ## Reference implementation
 
-A implementação executável desta arquitetura está planejada para [`RI/`](RI/README.md) — diretório a ser criado a partir do backlog estruturado em [`docs/RI-PLANNING.md`](docs/RI-PLANNING.md) — com gateway MCP, PEP/PDP sobre OPA (Rego v1), Keycloak como Identity Provider (OAuth 2.1/OIDC), serviços de exemplo, testes adversariais e ambiente Docker Compose.
+A implementação executável desta arquitetura está concluída em [`RI/`](RI/README.md) — com gateway MCP, PEP/PDP sobre OPA (Rego v1), Keycloak como Identity Provider (OAuth 2.1/OIDC), serviços de exemplo, testes adversariais e ambiente Docker Compose. Ver [`RI/docs/AS-BUILT.md`](RI/docs/AS-BUILT.md) para a referência técnica do que foi implementado e validado, e [`docs/adr/`](docs/adr/) para as decisões arquiteturais registradas.
 
 > **Nota de implementação (v0.2+).** A camada de orquestração de agentes (LangGraph) e de observabilidade de LLM (Langfuse) da RI adota como referência operacional o projeto open-source *Agent Platform OCI*, de Christiano Hoshikawa — ver §6.2, §6.12, §35.1 e §43.5 para as anotações correspondentes, e `docs/research/hoshikawa-agent-platform-oci.md` para a análise completa.
 
@@ -2672,20 +2672,20 @@ A visão arquitetural está consistente, mas uma implementação concreta precis
    - workload identity?
    - mTLS?
    - cloud IAM?
-   - → **Decisão adotada na RI**: OAuth 2.1 `client_credentials` via Keycloak, com mTLS/workload identity documentados como extensão de produção não implementada (`docs/RI-PLANNING.md`, ADR-019).
+   - → **Decisão adotada na RI**: OAuth 2.1 `client_credentials` via Keycloak, com mTLS/workload identity documentados como extensão de produção não implementada (`docs/adr/ADR-019-identity-extension.md`).
 
 2. **Qual será a granularidade dos client profiles?**
    - domínio?
    - domínio + read/write?
    - domínio + risk tier?
-   - → **Decisão adotada na RI**: domínio + risk tier (ver §17; `docs/RI-PLANNING.md`, ADR-008).
+   - → **Decisão adotada na RI**: domínio + risk tier (ver §17; `docs/adr/ADR-008-segmentacao-por-dominio-e-risco.md`).
 
 3. **Qual engine implementará o PDP?**
    - engine próprio?
    - Cedar?
    - OPA/Rego?
    - IAM/policy service existente?
-   - → **Decisão adotada na RI**: OPA/Rego (sintaxe v1), self-hosted (`docs/RI-PLANNING.md`, ADR-025 — não confundir com o ADR-010 acima, "Global Capability Registry Governance", que é uma decisão distinta).
+   - → **Decisão adotada na RI**: OPA/Rego (sintaxe v1), self-hosted (`docs/adr/ADR-025-engine-do-pdp.md` — não confundir com o ADR-010 acima, "Global Capability Registry Governance", que é uma decisão distinta).
 
 4. **Quem é owner do Global Capability Registry?**
 
@@ -2693,21 +2693,21 @@ A visão arquitetural está consistente, mas uma implementação concreta precis
    - workload identity?
    - OBO/token exchange?
    - backend service account?
-   - → **Decisão adotada na RI**: token exchange (RFC 8693) quando o backend suportar OIDC, senão service account isolado por adapter (`docs/RI-PLANNING.md`, ADR-020).
+   - → **Decisão adotada na RI**: token exchange (RFC 8693) quando o backend suportar OIDC, senão service account isolado por adapter (`docs/adr/ADR-020-downstream-identity.md`).
 
 6. **Quais tools exigirão human approval?**
 
 7. **Como policy revocation invalidará caches?**
-   - → **Decisão adotada na RI**: invalidação disparada por evento de revogação/mudança de política, com TTL curto como rede de segurança adicional (`docs/RI-PLANNING.md`, EP-04-T03/EP-05-T03).
+   - → **Decisão adotada na RI**: invalidação disparada por evento de revogação/mudança de política, com TTL curto como rede de segurança adicional (`RI/docs/AS-BUILT.md`, componentes Entitlement Manager e Gateway).
 
 8. **Qual será o modelo de federation entre domain MCP servers?**
-   - → **Escopo da RI**: federação completa fica fora de escopo — a RI demonstra 2 domínios (Sales, Finance), suficiente para provar segmentação/blast-radius (`docs/RI-PLANNING.md`, lacuna G9).
+   - → **Escopo da RI**: federação completa fica fora de escopo — a RI demonstra 2 domínios (Sales, Finance), suficiente para provar segmentação/blast-radius (`RI/docs/Assumptions.md`).
 
 9. **Como impedir bypass em ambientes híbridos/multi-cloud?**
-   - → **Escopo da RI**: a RI roda 100% local via Docker Compose; ambientes híbridos/multi-cloud ficam fora de escopo (`docs/RI-PLANNING.md`, lacuna G10).
+   - → **Escopo da RI**: a RI roda 100% local via Docker Compose; ambientes híbridos/multi-cloud ficam fora de escopo (`RI/docs/Assumptions.md`).
 
 10. **Como separar dev/test/prod client identities e entitlements?**
-    - → **Decisão adotada na RI**: overlay de configuração por ambiente (`config/env/{dev,ci}.yaml`), sem infraestrutura cloud real (`docs/RI-PLANNING.md`, P10).
+    - → **Decisão adotada na RI**: overlay de configuração por ambiente (`config/env/{dev,ci}.yaml`), sem infraestrutura cloud real (`RI/docs/Assumptions.md`).
 
 ---
 
@@ -2735,7 +2735,7 @@ ADR-016: Agent Runtime Dispatch and Handoff Contract
 ADR-017: End-to-End Decision and Execution Correlation
 ```
 
-> **Nota de implementação.** A RI estende esta lista com ADR-018 em diante — decisões de tecnologia concreta (stack Python/YAML, engine do PDP, Identity Provider, downstream identity, referência de implementação Python/LangGraph/Langfuse, posicionamento frente a plataformas de orquestração externas) necessárias para transformar estes 17 ADRs conceituais em uma implementação executável. Ver `docs/RI-PLANNING.md`, seção 8.4, para a lista completa (ADR-001 a ADR-025) e `docs/research/hoshikawa-agent-platform-oci.md` para a pesquisa que fundamenta ADR-022 a ADR-024.
+> **Nota de implementação.** A RI estende esta lista com ADR-018 em diante — decisões de tecnologia concreta (stack Python/YAML, engine do PDP, Identity Provider, downstream identity, referência de implementação Python/LangGraph/Langfuse, posicionamento frente a plataformas de orquestração externas) necessárias para transformar estes 17 ADRs conceituais em uma implementação executável. Ver [`docs/adr/`](docs/adr/) para a lista completa (ADR-001 a ADR-025) e `docs/research/hoshikawa-agent-platform-oci.md` para a pesquisa que fundamenta ADR-022 a ADR-024.
 
 ---
 

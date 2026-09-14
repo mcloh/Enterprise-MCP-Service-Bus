@@ -1,6 +1,6 @@
 """CI/local check (EP-00-T03): every YAML file under config/ must validate
 against its Pydantic model -- this is the thing that actually matters
-(RI-PLANNING.md's "todo YAML de config tem ... validação em CI"), not just
+("todo YAML de config tem ... validação em CI"), not just
 that a JSON Schema file exists somewhere.
 """
 

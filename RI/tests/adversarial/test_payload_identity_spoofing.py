@@ -1,5 +1,5 @@
-"""Payload-declared identity spoofing (EP-15-T03, docs/RI-PLANNING.md
-ADR-023 -- a variation of README.md §45 Teste 4 motivated by a real
+"""Payload-declared identity spoofing (EP-15-T03, ADR-023 --
+a variation of README.md §45 Teste 4 motivated by a real
 vulnerability class observed in `docs/research/hoshikawa-agent-platform-oci.md`:
 an MCP Gateway authorizing tools against an `agent_id` that arrives as
 **data in the conversation payload**, not as a claim of an independently

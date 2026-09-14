@@ -1,7 +1,7 @@
 # ADR-018: Stack de implementacao da RI
 
 **Status:** Aceito.
-**Fonte:** `docs/RI-PLANNING.md` §8.4 (tabela de ADRs), linha ADR-018 — gerado a partir dela por EP-16-T03. Onde a RI tem um componente/teste concreto implementando a decisão, este documento aponta para ele; a tabela em si continua a referência primária e mais atualizada.
+**Fonte:** este ADR é o registro canônico desta decisão — não é mais gerado a partir de `docs/RI-PLANNING.md` (removido do repositório após a conclusão do marco M4; histórico preservado no git). Para contexto de implementação e validação, ver `RI/docs/AS-BUILT.md` e, quando aplicável, o contrato relevante em `RI/docs/interfaces/`.
 
 ## Contexto
 
@@ -21,8 +21,8 @@ Define toda a estrutura de repositório (8.5).
 
 ## Versões confirmadas (EP-16-T04)
 
-Spike sem dependências, executável a qualquer momento (`docs/RI-PLANNING.md`
-EP-16-T04): confirmar, imediatamente antes de fixar em `pyproject.toml`/
+Spike sem dependências, executável a qualquer momento (EP-16-T04): confirmar,
+imediatamente antes de fixar em `pyproject.toml`/
 `docker-compose.yml`, os números exatos de versão estável de cada peça da
 stack — nenhuma versão citada em código/config sem confirmação real
 (`pip index versions`/download direto/instalação real), nunca de memória.
