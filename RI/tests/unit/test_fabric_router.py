@@ -49,30 +49,32 @@ def router(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> CapabilityRouter:
     return CapabilityRouter(store, backend_credentials)
 
 
-def test_sales_capability_routes_to_sales_backend_not_finance(router: CapabilityRouter) -> None:
+async def test_sales_capability_routes_to_sales_backend_not_finance(
+    router: CapabilityRouter,
+) -> None:
     """README.md §6.7 EP-06-T01 acceptance: a Sales capability must reach the
     Sales backend, never Finance."""
-    route = router.route("sales.customer.get")
+    route = await router.route("sales.customer.get")
 
     assert route.backend_id == "sales-domain"
     assert route.url == "http://127.0.0.1:8100/mcp"
     assert route.credential_token == "sales-secret"
 
 
-def test_finance_capability_routes_to_finance_backend(router: CapabilityRouter) -> None:
-    route = router.route("finance.payment.execute")
+async def test_finance_capability_routes_to_finance_backend(router: CapabilityRouter) -> None:
+    route = await router.route("finance.payment.execute")
 
     assert route.backend_id == "finance-domain"
     assert route.url == "http://127.0.0.1:8101/mcp"
     assert route.credential_token == "finance-secret"
 
 
-def test_unknown_capability_is_unroutable(router: CapabilityRouter) -> None:
+async def test_unknown_capability_is_unroutable(router: CapabilityRouter) -> None:
     with pytest.raises(UnroutableCapabilityError):
-        router.route("sales.does.not.exist")
+        await router.route("sales.does.not.exist")
 
 
-def test_deprecated_capability_is_unroutable(
+async def test_deprecated_capability_is_unroutable(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """Only ACTIVE capabilities are routable (README.md §6.6) -- a capability
@@ -95,7 +97,7 @@ def test_deprecated_capability_is_unroutable(
     router = CapabilityRouter(store, backend_credentials)
 
     with pytest.raises(UnroutableCapabilityError):
-        router.route("sales.customer.get")
+        await router.route("sales.customer.get")
 
 
 def test_distinct_backends_for_sales_only_entitlement_excludes_finance(

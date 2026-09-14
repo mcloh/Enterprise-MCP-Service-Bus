@@ -52,11 +52,11 @@ class CapabilityRouter:
         self._registry = registry
         self._backend_credentials = backend_credentials
 
-    def route(self, tool: str) -> BackendRoute:
+    async def route(self, tool: str) -> BackendRoute:
         manifest = self._active_manifest(tool)
         backend_ref = manifest.backend
         try:
-            credential = self._backend_credentials.credential_for(backend_ref.service)
+            credential = await self._backend_credentials.credential_for(backend_ref.service)
         except UnknownBackendError as exc:
             raise UnroutableCapabilityError(
                 f"Capability {tool!r} references unknown backend {backend_ref.service!r}"

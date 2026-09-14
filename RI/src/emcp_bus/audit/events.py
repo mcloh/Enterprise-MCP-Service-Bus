@@ -152,3 +152,47 @@ def bypass_attempt_detected(*, backend: str, reason: str) -> EventEnvelope:
         category=EventCategory.GRL,
         payload={"backend": backend, "reason": reason},
     )
+
+
+def nba_recalculated(
+    *, subject_ref: str, denied_action: str, new_action: str | None
+) -> EventEnvelope:
+    """EP-11-T04: the Orchestrator recomputed NBA after a Gateway DENY,
+    never retried the denied action directly against the Fabric."""
+    return _base(
+        event_type="nba_recalculated",
+        category=EventCategory.IC,
+        payload={
+            "subject_ref": subject_ref,
+            "denied_action": denied_action,
+            "new_action": new_action,
+        },
+    )
+
+
+def agent_turn_completed(
+    *, agent: str, tools_attempted: list[str], tools_denied: list[str]
+) -> EventEnvelope:
+    """EP-13-T01: one business-journey event per agent turn (ADR-022's
+    hybrid instrumentation -- an automatic OTel span per turn already exists
+    via common/otel.py; this is the manual, fail-open business event on
+    top). `tools_denied` is never proof of a bug -- the Gateway/PDP denying
+    a tool the agent (or a prompt trying to manipulate it) attempted is the
+    security boundary working as intended (README.md §29, Teste 3 of §45)."""
+    return _base(
+        event_type="agent_turn_completed",
+        category=EventCategory.IC,
+        client_id=agent,
+        payload={"tools_attempted": tools_attempted, "tools_denied": tools_denied},
+    )
+
+
+def journey_ended_after_denial(*, subject_ref: str, denied_action: str) -> EventEnvelope:
+    """EP-11-T04: no remaining offering survived a Gateway DENY -- the
+    journey ends here, audited, rather than the Orchestrator attempting any
+    direct Fabric call (README.md §10.1, Axiom 12, P9)."""
+    return _base(
+        event_type="journey_ended_after_denial",
+        category=EventCategory.GRL,
+        payload={"subject_ref": subject_ref, "denied_action": denied_action},
+    )

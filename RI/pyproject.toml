@@ -14,6 +14,13 @@ dependencies = [
     "uvicorn>=0.52,<1",
     "httpx>=0.28,<1",
     "pyjwt[crypto]>=2.14,<3",
+    # M3 (EP-11): Service Orchestrator's journey StateGraph + checkpointing.
+    "langgraph>=0.6,<0.7",
+    "langgraph-checkpoint-sqlite>=2.0,<3",
+    # M3 (EP-13): example LLM agent -- OpenAI-compatible client (works
+    # against OCI Generative AI's OpenAI-compatible endpoint, verified
+    # 2026-09-14, and against OpenAI/Anthropic-compatible gateways generally).
+    "openai>=1.50,<2",
 ]
 
 [project.optional-dependencies]
@@ -32,6 +39,12 @@ dev = [
     # suite intermittently failed several. Used by `make test` itself now,
     # not just CI.
     "pytest-forked>=1.7.5,<2",
+    # EP-10-T02: property-based tests for the FilteredOfferings subset invariant.
+    "hypothesis>=6.100,<7",
+    # EP-13-T01's e2e test loads LLM_API_KEY/LLM_BASE_URL/LLM_MODEL from a
+    # local, gitignored RI/.env -- convenience only, never a runtime
+    # dependency of the RI itself.
+    "python-dotenv>=1.2,<2",
     "types-PyYAML>=6.0.12,<7",
 ]
 
@@ -40,13 +53,13 @@ requires = ["setuptools>=69"]
 build-backend = "setuptools.build_meta"
 
 [tool.setuptools.packages.find]
-where = ["src", "services", "."]
-include = ["emcp_bus*", "example_mcp_servers*"]
+where = ["src", "services", "agents", "."]
+include = ["emcp_bus*", "example_mcp_servers*", "example_agent*"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 asyncio_mode = "auto"
-pythonpath = ["src", "services"]
+pythonpath = ["src", "services", "agents"]
 
 [tool.ruff]
 line-length = 100
@@ -58,4 +71,4 @@ select = ["E", "F", "I", "UP", "B", "SIM"]
 [tool.mypy]
 python_version = "3.12"
 strict = true
-mypy_path = ["src", "services"]
+mypy_path = ["src", "services", "agents"]

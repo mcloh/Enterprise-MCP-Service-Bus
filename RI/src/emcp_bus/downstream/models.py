@@ -1,11 +1,19 @@
 """Backend credential config schema (EP-07-T02, README.md §20).
 
 One entry per backend the Fabric calls, declaring *how* the Gateway obtains
-an outbound credential for it -- never the credential's value. The RI
-implements `service_account` (a static credential resolved from an env var
-at call time); `token_exchange` (RFC 8693, e.g. via Keycloak) is modeled as
-a distinct, documented mode but not implemented in this milestone -- see
-`emcp_bus.downstream.identity.BackendCredentialProvider`.
+an outbound credential for it -- never the credential's value. Two modes:
+`service_account` (a static credential resolved from an env var at call
+time) and `token_exchange` (RFC 8693 via Keycloak's Standard Token Exchange,
+GA since Keycloak 26.2 -- verified against a real Keycloak 26.7.3 instance,
+2026-09-14: see `emcp_bus.downstream.identity.TokenExchangeClient`). Setting
+up `token_exchange` mode for a backend requires, on the real IdP: the
+Gateway's own exchange client has `attributes.standard.token.exchange.enabled
+= "true"` and is `serviceAccountsEnabled`; a client scope named
+`token_exchange_scope` exists with an `oidc-audience-mapper` targeting this
+backend's `audience` (verified empirically -- requesting `audience` alone,
+without also requesting a scope that actually adds it, fails with "Requested
+audience not available"); that scope is a default (or requested optional)
+scope of the Gateway's exchange client.
 """
 
 from __future__ import annotations
@@ -42,8 +50,13 @@ class BackendConfig(BaseModel):
     static credential. Required when `credential_mode == "service_account"`."""
 
     token_exchange_endpoint: str | None = None
-    """RFC 8693 token endpoint URL. Documented extension point, not yet
-    implemented -- see module docstring."""
+    """RFC 8693 token endpoint URL, e.g.
+    `http://keycloak:8080/realms/emcp/protocol/openid-connect/token`."""
+
+    token_exchange_scope: str | None = None
+    """Name of the Keycloak client scope (carrying an `oidc-audience-mapper`
+    for this backend's `audience`) to request alongside the RFC 8693
+    `audience` parameter -- required, see module docstring."""
 
     @field_validator("service_account_token_env_var")
     @classmethod
@@ -65,5 +78,9 @@ class BackendConfig(BaseModel):
         if self.credential_mode == "token_exchange" and not self.token_exchange_endpoint:
             raise ValueError(
                 "token_exchange_endpoint is required when credential_mode == 'token_exchange'"
+            )
+        if self.credential_mode == "token_exchange" and not self.token_exchange_scope:
+            raise ValueError(
+                "token_exchange_scope is required when credential_mode == 'token_exchange'"
             )
         return self

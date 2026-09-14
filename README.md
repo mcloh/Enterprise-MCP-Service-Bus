@@ -3,6 +3,7 @@
 
 **Status:** Working Draft v0.2  
 **Escopo:** Arquitetura corporativa para publicar, descobrir, personalizar, orquestrar e executar capacidades empresariais por meio de MCP, com um MCP Gateway atuando como Policy Enforcement Point (PEP), o MCP Client definindo o limite máximo de privilégio e o Service Orchestrator calculando a Next Best Action (NBA) dentro desse limite.
+**Primeira Publicação:** 14/08/2026
 
 ## Reference implementation
 

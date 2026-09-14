@@ -71,6 +71,7 @@ from emcp_bus.common.otel import setup_tracing
 from emcp_bus.downstream.identity import (
     BackendCredentialProvider,
     BackendCredentialUnavailableError,
+    TokenExchangeClient,
     UnknownBackendError,
 )
 from emcp_bus.downstream.models import BackendConfig
@@ -100,6 +101,8 @@ class GatewayConfig:
     oidc_issuer: str
     oidc_audience: str
     audit_log_path: str
+    token_exchange_client_id: str
+    token_exchange_client_secret: str
 
     @classmethod
     def from_env(cls) -> GatewayConfig:
@@ -110,6 +113,13 @@ class GatewayConfig:
             oidc_issuer=os.environ.get("OIDC_ISSUER", ""),
             oidc_audience=os.environ.get("OIDC_AUDIENCE", "emcp-gateway"),
             audit_log_path=os.environ.get("EMCP_AUDIT_LOG_PATH", "/tmp/emcp-audit.jsonl"),
+            # EP-07 RFC 8693: the Gateway's own confidential IdP client, used
+            # to obtain and exchange tokens for backends configured with
+            # `credential_mode: token_exchange` (downstream/models.py). Empty
+            # (default) unless set -- backends in `service_account` mode
+            # (the RI's seed config) never need this.
+            token_exchange_client_id=os.environ.get("GATEWAY_TOKEN_EXCHANGE_CLIENT_ID", ""),
+            token_exchange_client_secret=os.environ.get("GATEWAY_TOKEN_EXCHANGE_CLIENT_SECRET", ""),
         )
 
     @property
@@ -176,8 +186,14 @@ async def lifespan(server: Server[GatewayState]) -> AsyncIterator[GatewayState]:
     # to at startup must not come up looking healthy (README.md §38).
     await manager.sync_profiles_to_pdp()
 
+    token_exchange_client: TokenExchangeClient | None = None
+    if config.token_exchange_client_id and config.token_exchange_client_secret:
+        token_exchange_client = TokenExchangeClient(
+            config.token_exchange_client_id, config.token_exchange_client_secret
+        )
     backend_credentials = BackendCredentialProvider(
-        load_yaml_models(config.backends_dir, BackendConfig)
+        load_yaml_models(config.backends_dir, BackendConfig),
+        token_exchange_client=token_exchange_client,
     )
 
     # Fresh Registry per lifespan run (mirrors `manager`/`backend_credentials`
@@ -208,6 +224,8 @@ async def lifespan(server: Server[GatewayState]) -> AsyncIterator[GatewayState]:
     finally:
         _current_state = None
         await pdp.aclose()
+        if token_exchange_client is not None:
+            await token_exchange_client.aclose()
         registry_db_path.unlink(missing_ok=True)
 
 
@@ -278,7 +296,7 @@ async def on_list_tools(
     all_tools: list[types.Tool] = []
     for backend_id in sorted(state.router.distinct_backends_for(resolved.allowed_tools)):
         try:
-            credential = state.backend_credentials.credential_for(backend_id)
+            credential = await state.backend_credentials.credential_for(backend_id)
         except (UnknownBackendError, BackendCredentialUnavailableError):
             continue
         downstream_result = await _with_downstream_session(
@@ -384,7 +402,7 @@ async def on_call_tool(
             return _denied(f"REQUIRE_APPROVAL:{decision.reason_code}:{request.approval_id}")
 
     try:
-        route = state.router.route(params.name)
+        route = await state.router.route(params.name)
     except UnroutableCapabilityError:
         state.audit_sink.emit(
             events.tool_call_denied(

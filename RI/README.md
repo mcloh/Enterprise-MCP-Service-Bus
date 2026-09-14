@@ -2,7 +2,7 @@
 
 Implementação executável da arquitetura descrita em [`../README.md`](../README.md), planejada em [`../docs/RI-PLANNING.md`](../docs/RI-PLANNING.md).
 
-> **Status: Marco M1 concluído** (fechamento retroativo pós-M2, 2026-09-11) — todos os gaps de M0/M1 identificados após o M2 foram implementados nesta rodada: Fabric router multi-backend (EP-06-T01), domínio Finance com backend real (EP-06-T03), auditoria IC/NOC/GRL + correlação ponta a ponta (EP-08-T02/T03), stack local de observabilidade (EP-08-T04), cache hint (EP-05-T03), anti-bypass (EP-05-T07), consistência header/body (EP-05-T08), adapter REST genérico (EP-06-T04), lint de shared client (EP-01-T05), spike de mTLS (EP-01-T04), pipeline de CI (EP-00-T03). Ver "O que existe hoje" abaixo. A flakiness da suíte e2e documentada em sessões anteriores está **resolvida** (`--forked`, ver abaixo). Os demais marcos (M3/M4) estão descritos em `docs/RI-PLANNING.md`, seção 8.7.
+> **Status: M0, M1, M2 e M3 concluídos** (M0-M2 implementados 2026-09-11 e revalidados 2026-09-14; M3 implementado 2026-09-14). **201 testes automatizados passando** (171 unit + 30 e2e, `--forked`, sem flakiness). M3 (Profile Intelligence, Offering Filter, Service Orchestrator com LangGraph real, Agent Runtime, agente de exemplo com LLM real + Langfuse self-hosted real) está descrito na seção "M3 — Personalização e orquestração" abaixo. Detalhes completos e critérios de aceite verificados em `docs/RI-PLANNING.md` seção 8.7. Só resta M4 (hardening, EP-13-T05/T06, EP-15, EP-16).
 
 ## Quickstart (sem Docker)
 
@@ -97,6 +97,20 @@ O Gateway (`src/emcp_bus/gateway/server.py`) suporta dois modos, sempre *deny by
 
 Os dois modos são testados explicitamente em `tests/e2e/test_governed_gateway.py`.
 
+## M3 — Personalização e orquestração
+
+Implementado e validado em 2026-09-14 (mesma sessão). Perfil → entitlement → ofertas filtradas → NBA → dispatch, ponta a ponta:
+
+1. **Profile Intelligence** (`src/emcp_bus/profile_intelligence/`): `ProfileView` versionado, provider rule-based determinístico (mesmo `subject_ref`+janela ISO → mesmo `profileVersion`), guardrails de governança (pseudonimização, lineage log, stub de drift).
+2. **Offering Filter** (`src/emcp_bus/offering_filter/`): `FilteredOfferings = ActiveCatalog ∩ MaximumEntitlement ∩ ConsentContext` — invariante de subconjunto provada com Hypothesis (2000 casos gerados, `tests/unit/test_offering_filter_invariants.py`).
+3. **Service Orchestrator** (`src/emcp_bus/orchestrator/`): `StateGraph` real do LangGraph 0.6 com checkpointer SQLite real — nós `resolve_profile → resolve_entitlement → filter_offerings → decide_nba → approval_gate`, mais um caminho de reentrada para recálculo após DENY (`handle_denial`, nunca chama o Fabric diretamente). O nó `approval_gate` usa `langgraph.types.interrupt`/`Command(resume=...)` — pausa de verdade, sem timeout que vire ALLOW implícito, integrado ao `ApprovalService` do EP-14.
+4. **Agent Runtime** (`src/emcp_bus/agent_runtime/`): `AgentDispatcher` nunca gera/armazena credencial própria — usa exclusivamente o MCP Client já registrado, via `client_credentials` real contra o mesmo IdP de qualquer outro client. Channel adapter conversacional + Identity Resolver (`config/orchestrator/identity.yaml`, nunca consultado pelo PDP — checado via AST em teste).
+5. **Agente de exemplo** (`agents/example_agent/`): tool-calling real contra um endpoint OpenAI-compatible (verificado com `meta.llama-3.3-70b-instruct` via OCI Generative AI), catálogo restrito ao `tools/list` do próprio client. O cenário de prompt injection do §29 (pedir `finance.payment.execute` fora do entitlement) é reproduzido de verdade em `tests/e2e/test_example_agent.py` — a chamada nunca é executada, seja porque o modelo nunca viu a tool no seu próprio catálogo, seja porque o Gateway/PDP nega.
+6. **Langfuse self-hosted** (`deploy/langfuse/docker-compose.override.yml`, perfil `llm-observability`): adaptado do `docker-compose.yml` oficial do Langfuse (upstream, 2026-09-14) — 6 containers (web/worker/postgres/clickhouse/redis/minio). **Validado de verdade nesta sessão**: stack subida via `docker compose ... --profile llm-observability up`, um turno real do agente de exemplo (LLM real + Gateway real) com `OTEL_EXPORTER_OTLP_ENDPOINT`/`OTEL_EXPORTER_OTLP_HEADERS` apontando para o endpoint OTLP nativo do Langfuse (`/api/public/otel/v1/traces`, sem nenhuma mudança de código — só variáveis de ambiente padrão do OTel SDK), e os spans (incluindo um span de "generation" com `gen_ai.request.model`/`gen_ai.usage.{input,output}_token_count` reais, via `agents/example_agent/agent.py`) confirmados fisicamente na tabela `events_core` do ClickHouse. Essa validação foi manual (não virou teste e2e automatizado, dado o custo de subir 6 containers a cada execução da suíte) — os comandos exatos estão documentados no histórico desta sessão; reproduzir localmente: `docker compose -f docker-compose.yml -f deploy/langfuse/docker-compose.override.yml --profile llm-observability up -d`, aguardar `curl http://localhost:3000/api/public/health`, criar um projeto/API key (UI ou `LANGFUSE_INIT_*`), apontar as duas env vars OTel acima.
+7. **Prompt versioning** (`agents/example_agent/prompts/store.py`, `could`): versionamento local (nunca sobrescreve, sempre cria versão nova) como núcleo testável — sync real para a API de Prompt Management do Langfuse é um adapter fino documentado, não implementado nesta sessão.
+
+Dependências novas: `langgraph`, `langgraph-checkpoint-sqlite`, `hypothesis` (dev), `openai`, `python-dotenv` (dev). Nenhuma delas é necessária para M0-M2 (Gateway/PDP/Registry continuam funcionando sem elas).
+
 ## O que existe hoje
 
 | Tarefa | Componente | Status |
@@ -111,22 +125,36 @@ Os dois modos são testados explicitamente em `tests/e2e/test_governed_gateway.p
 | EP-06-T02 | MCP Server de exemplo — Sales | ✅ 6 tools (R1 + R2), agora com `BackendCredentialGate` (EP-05-T07) |
 | EP-06-T03 | MCP Server de exemplo — Finance | ✅ `services/example_mcp_servers/finance_domain/server.py` — invoice.get (R1), payment.create (R2), payment.execute (R3, ciclo de aprovação completo testado e2e) |
 | EP-06-T04 | Adapter REST genérico | ✅ `src/emcp_bus/fabric/adapters/rest_adapter.py` — implementado e testado standalone (`httpx.MockTransport`); nenhum manifest seed usa `backend.type: "rest"` ainda (os dois domínios de exemplo são MCP-nativos), então não há caminho ao vivo através do Gateway exercitando-o — ver módulo docstring |
-| EP-07 (completo) | Outbound/downstream identity: credencial de backend distinta da do client | ✅ `src/emcp_bus/downstream/{models,identity}.py`, ligado ao Gateway, testado |
+| EP-07 (completo) | Outbound/downstream identity: credencial de backend distinta da do client, **token exchange RFC 8693** | ✅ `src/emcp_bus/downstream/{models,identity}.py` — `service_account` (padrão dos backends seed) **e** `token_exchange` (Keycloak Standard Token Exchange, validado contra Keycloak real 2026-09-14) |
 | EP-08-T01 | Tracing OTel | ✅ (M0) |
 | EP-08-T02 | Eventos de auditoria (taxonomia IC/NOC/GRL) | ✅ `src/emcp_bus/audit/{models,events,sink}.py` — nunca registra valor de token/secret (hash apenas), sink JSONL append-only |
 | EP-08-T03 | Correlação ponta a ponta (decisionId/policyDecisionId/entitlementVersion/mcpRequestId) | ✅ `src/emcp_bus/audit/correlation.py` — exposto no trace (span attributes) e em todo evento de auditoria |
 | EP-08-T04 | Stack local de observabilidade (OTel Collector + Jaeger) | ✅ `docker-compose.yml` perfil `observability` + `deploy/otel/collector-config.yaml` — config validada (`docker compose config`), não exercitada com tráfego real nesta rodada |
 | EP-14 (completo) | Approval workflow: contrato, serviço, fail-closed, ligado ao Gateway | ✅ `src/emcp_bus/approval/{models,service}.py`, testado (ciclo completo e2e para Sales **e** Finance: nega → aprova externamente → executa → replay nega) |
+| EP-09 (completo) | Profile Intelligence: contrato, provider rule-based, governança | ✅ `src/emcp_bus/profile_intelligence/*.py` |
+| EP-10 (completo) | Offering Filter: serviço + invariante de subconjunto | ✅ `src/emcp_bus/offering_filter/service.py` — invariante provada com Hypothesis (2000 casos) |
+| EP-11 (completo) | Service Orchestrator: DecisionContext, StateGraph LangGraph, decisioning pluggable, recálculo, HITL | ✅ `src/emcp_bus/orchestrator/*.py` — LangGraph + checkpointer SQLite reais, checkpoint-resume e pausa/retomada de aprovação validados |
+| EP-12 (completo) | Agent Runtime: dispatch, channel adapter, handoff, identity resolver | ✅ `src/emcp_bus/agent_runtime/*.py` — validado contra Gateway + Keycloak reais |
+| EP-13-T01/T03/T04 | Agente de exemplo (LLM real), redação de PII, versionamento de prompt | ✅ `agents/example_agent/*.py` — tool-calling real, cenário de prompt injection do §29 reproduzido |
+| EP-13-T02 | Langfuse self-hosted | ✅ `deploy/langfuse/docker-compose.override.yml` — subido e validado de verdade (ver seção M3 acima); validação manual, não automatizada em CI |
 
-**119 testes automatizados** (97 unit + 22 e2e, incluindo 4 contra Keycloak real em `test_real_keycloak.py`), a lógica de produção sem mocks do núcleo de segurança: OPA real (subprocess), Keycloak real (Docker) + JWKS HTTP real (stand-in leve para o resto da suíte) + JWT RS256 reais, YAML reais de `config/`, SQLite real para o Registry. **100% determinísticos com `--forked`** (verificado em múltiplas execuções seguidas) — a flakiness antes documentada para a suíte e2e está resolvida, ver seção dedicada acima.
+**201 testes automatizados** (171 unit + 30 e2e, incluindo 7 contra Keycloak real e 2 contra um LLM real em `test_example_agent.py`), a lógica de produção sem mocks do núcleo de segurança e orquestração: OPA real (subprocess), Keycloak real (Docker), LangGraph real com checkpointer SQLite real, LLM real (endpoint OpenAI-compatible), JWKS HTTP real (stand-in leve para o resto da suíte) + JWT RS256 reais, YAML reais de `config/`, SQLite real para o Registry. **100% determinísticos com `--forked`** (verificado em múltiplas execuções seguidas) — a flakiness antes documentada para a suíte e2e está resolvida, ver seção dedicada acima.
 
 ## Limitações conhecidas
 
 - **SEP-2549 (`ttlMs` do cache hint de `tools/list`, EP-05-T03)**: implementado corretamente (`src/emcp_bus/gateway/cache.py`), mas o campo é vocabulário exclusivo do protocolo 2026-07-28, que só existe no modo *stateless per-request* do SDK (sem handshake `initialize`) — esta RI usa o handshake de sessão clássico em toda parte (Gateway↔Client e Gateway↔backends), então `ttl_ms` nunca chega ao wire nesta arquitetura, não importa o que o Gateway compute (o SDK descarta o campo na serialização para versões de protocolo anteriores a 2026-07-28 — verificado empiricamente). `cache_scope` não sofre essa limitação de wire, mas por não ter dependência de wire-mode também não é algo que um teste e2e consiga verificar de forma discriminante (o cliente sempre usa o default do próprio campo). A propriedade de segurança real (Teste 5, §45 — nunca vazar catálogo entre clientes) é garantida de forma independente pelo Gateway nunca cachear o catálogo filtrado no servidor.
 - **EP-05-T08 (consistência header/body)**: implementado como um gate próprio (`canonical_request.py`) reaproveitando as constantes/nomes de campo do SDK, e não como o ladder de validação nativo do SDK (`mcp.shared.inbound.classify_inbound_request`), que só se aplica ao mesmo modo *stateless per-request* de 2026-07-28 mencionado acima — pela mesma razão, este RI não o alcança pelo caminho nativo.
 - **EP-06-T04 (adapter REST)**: implementado e testado de forma standalone; nenhum backend de exemplo desta RI é REST (ambos são MCP-nativos), então o roteamento ao vivo através do Gateway para um backend `type: "rest"` não foi exercitado end-to-end.
-- **Token exchange RFC 8693** (EP-07, modo `token_exchange` de `BackendConfig`): implementado como contrato/config validado, mas a chamada real ao endpoint de token exchange é um `NotImplementedError` documentado — o modo `service_account` (credencial estática por env var) é o caminho testado ponta a ponta.
 - **Stack de observabilidade** (EP-08-T04): config validada, não exercitada com tráfego real (ver "O que foi validado com Docker").
+
+~~Token exchange RFC 8693 (`NotImplementedError`)~~ — **resolvido em 2026-09-14** (início do M3): `TokenExchangeClient` implementa o Standard Token Exchange do Keycloak (GA desde 26.2) de ponta a ponta, validado contra Keycloak real, incluindo um `tools/call` completo pelo Gateway usando uma credencial obtida por exchange. Ver `docs/RI-PLANNING.md` §8.7 para os detalhes verificados (exigências reais do IdP: `audience` precisa ser um client id registrado; `scope` precisa acompanhar `audience` ou o exchange falha).
+
+**M3, novas ressalvas (2026-09-14):**
+
+- **EP-12-T03 (handoff, `could`)**: implementa minimização de contexto + resolução de entitlement independente por agente (testado), mas não há ainda um subgrafo LangGraph intra-processo de handoff — o journey graph do EP-11 tem exatamente um agente ativo por execução hoje. O primitivo cross-process (`execute_handoff`) é o que o EP-13-T05 (M4, cena com dois backends reais) vai usar.
+- **EP-13-T02 (Langfuse)**: validado manualmente de verdade (ver seção M3 acima — spans reais confirmados no ClickHouse), mas não é um teste e2e automatizado por causa do custo de subir 6 containers a cada execução da suíte.
+- **EP-13-T04 (prompt versioning, `could`)**: o núcleo de versionamento é real e testado; o sync com a API de Prompt Management do Langfuse (`langfuse.api.prompts.create`) é um adapter fino documentado, não implementado.
+- **Credencial de LLM**: `LLM_API_KEY`/`LLM_BASE_URL`/`LLM_MODEL` (ver `.env.example`) são necessárias para `tests/e2e/test_example_agent.py` — sem elas, esses 2 testes são pulados (`pytest.skip`), não falham, igual ao padrão já usado para `opa`/`docker`.
 
 ## Versões fixadas
 
@@ -136,6 +164,8 @@ Ver `pyproject.toml`. Confirmadas via `pip index versions`/download direto em 20
 - `pydantic` 2.13.x, `opentelemetry-sdk` 1.44.x, `uvicorn` 0.52.x, `pyjwt[crypto]` 2.14.x, `ruff` 0.16.x, `mypy` 2.3.x, `pytest` 9.1.x
 - `OPA` 1.20.2 (binário estático, Rego v1 padrão)
 - `pytest-forked` 1.7.x (resolve a flakiness da suíte e2e, ver acima)
+- `langgraph` 0.6.x + `langgraph-checkpoint-sqlite` 2.x (M3, EP-11), `hypothesis` 6.1xx.x (dev, EP-10-T02), `openai` 1.109.x (M3, EP-13-T01), `python-dotenv` 1.2.x (dev) — confirmadas via instalação direta em 2026-09-14
+- Langfuse self-hosted 4.35.0 (`docker.langfuse.com/langfuse/langfuse:4`, imagem oficial, EP-13-T02)
 
 ## Estrutura
 
@@ -169,14 +199,25 @@ RI/
 │   ├── downstream/{models,identity}.py    # EP-07
 │   ├── audit/{models,events,sink,correlation,bypass_detection}.py  # EP-08-T02/T03, EP-05-T07
 │   ├── approval/{models,service}.py       # EP-14
-│   └── gateway/{server,cache,canonical_request}.py  # EP-05, integra tudo acima
+│   ├── gateway/{server,cache,canonical_request}.py  # EP-05, integra tudo acima
+│   ├── profile_intelligence/{models,rule_based_provider,governance}.py  # EP-09
+│   ├── offering_filter/service.py         # EP-10
+│   ├── orchestrator/{decision_context,state,graph,nba_model,decisioning,fallback,hitl_node}.py  # EP-11
+│   └── agent_runtime/{dispatcher,identity_resolver,handoff_graph,channels/*}.py  # EP-12
 ├── services/example_mcp_servers/
 │   ├── sales_domain/server.py    # EP-06-T02 (6 tools: R1 + R2)
 │   └── finance_domain/server.py  # EP-06-T03 (invoice.get R1, payment.create R2, payment.execute R3)
+├── agents/example_agent/
+│   ├── agent.py, llm_client.py   # EP-13-T01
+│   └── prompts/{store.py,v1.txt} # EP-13-T04
+├── deploy/langfuse/docker-compose.override.yml  # EP-13-T02
 └── tests/
     ├── unit/       # schemas, PDP, entitlement, authn, registry, downstream identity, approval,
     │                # fabric router, audit, canonical request, rest adapter, bypass detection,
-    │                # gateway cache, shared client lint
+    │                # gateway cache, shared client lint, profile intelligence, offering filter
+    │                # (+ invariants), orchestrator (decision_context/decisioning/fallback/hitl/graph),
+    │                # agent_runtime (channels/identity_resolver/handoff), pii_redaction, prompt store
     └── e2e/        # conftest.py (fixtures compartilhados), walking skeleton, governed gateway,
-                     # test_real_keycloak.py (EP-01-T01, Docker real)
+                     # test_real_keycloak.py (EP-01-T01/T12, token exchange, Docker real),
+                     # test_example_agent.py (EP-13-T01, LLM real)
 ```

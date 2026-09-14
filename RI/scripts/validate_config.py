@@ -11,7 +11,8 @@ from pathlib import Path
 
 from pydantic import BaseModel
 
-from emcp_bus.common.config import ConfigError, load_yaml_models
+from emcp_bus.agent_runtime.identity_resolver import IdentityResolverConfig
+from emcp_bus.common.config import ConfigError, load_yaml_model, load_yaml_models
 from emcp_bus.downstream.models import BackendConfig
 from emcp_bus.entitlement.models import ClientProfile
 from emcp_bus.identity.models import ClientRegistration
@@ -44,6 +45,16 @@ def main() -> int:
         print(f"OK    {relative_dir}: {len(items)} file(s) validated against {model.__name__}")
         if model is ClientRegistration:
             client_registrations = items  # type: ignore[assignment]
+
+    # EP-12-T04: a single named file, not a directory of many.
+    identity_yaml = CONFIG_DIR / "orchestrator" / "identity.yaml"
+    try:
+        load_yaml_model(identity_yaml, IdentityResolverConfig)
+    except ConfigError as exc:
+        print(f"FAIL  orchestrator/identity.yaml: {exc}")
+        had_errors = True
+    else:
+        print("OK    orchestrator/identity.yaml: validated against IdentityResolverConfig")
 
     # EP-01-T05: two agents sharing an MCP Client identity must resolve to
     # the same profile (README.md §18/§35) -- a config-shape check schema

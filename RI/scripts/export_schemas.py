@@ -11,11 +11,13 @@ from pathlib import Path
 
 from pydantic import BaseModel
 
+from emcp_bus.agent_runtime.identity_resolver import IdentityResolverConfig
 from emcp_bus.approval.models import ApprovalRequest
 from emcp_bus.downstream.models import BackendConfig
 from emcp_bus.entitlement.models import ClientProfile
 from emcp_bus.identity.models import ClientRegistration
 from emcp_bus.pdp.models import PDPDecision
+from emcp_bus.profile_intelligence.models import ProfileView
 from emcp_bus.registry.models import CapabilityManifest
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -28,6 +30,8 @@ MODELS: dict[str, type[BaseModel]] = {
     "backend-credentials": BackendConfig,
     "approval-request": ApprovalRequest,
     "pdp-decision": PDPDecision,
+    "profile-view": ProfileView,
+    "identity-resolver": IdentityResolverConfig,
 }
 
 

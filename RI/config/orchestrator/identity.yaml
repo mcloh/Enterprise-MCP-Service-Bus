@@ -1,0 +1,8 @@
+# EP-12-T04: channel field name -> canonical business key.
+# Never consulted by the PDP (EP-03) -- see identity_resolver.py's module
+# docstring, ADR-023.
+aliases:
+  msisdn: customer_key
+  email: customer_key
+  account_number: contract_key
+  session_token: session_key

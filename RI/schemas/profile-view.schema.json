@@ -1,0 +1,68 @@
+{
+  "$defs": {
+    "Segment": {
+      "properties": {
+        "id": {
+          "title": "Id",
+          "type": "string"
+        },
+        "score": {
+          "maximum": 1.0,
+          "minimum": 0.0,
+          "title": "Score",
+          "type": "number"
+        }
+      },
+      "required": [
+        "id",
+        "score"
+      ],
+      "title": "Segment",
+      "type": "object"
+    }
+  },
+  "properties": {
+    "attributes": {
+      "additionalProperties": {
+        "type": "string"
+      },
+      "title": "Attributes",
+      "type": "object"
+    },
+    "expires_at": {
+      "format": "date-time",
+      "title": "Expires At",
+      "type": "string"
+    },
+    "profile_version": {
+      "title": "Profile Version",
+      "type": "string"
+    },
+    "reason_codes": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Reason Codes",
+      "type": "array"
+    },
+    "segments": {
+      "items": {
+        "$ref": "#/$defs/Segment"
+      },
+      "title": "Segments",
+      "type": "array"
+    },
+    "subject_ref": {
+      "description": "Pseudonymized subject identifier, e.g. 'subject:7f31c2' -- never a raw PII identifier (README.md \u00a76.10 governance requirements, EP-09-T03's guardrail).",
+      "title": "Subject Ref",
+      "type": "string"
+    }
+  },
+  "required": [
+    "subject_ref",
+    "profile_version",
+    "expires_at"
+  ],
+  "title": "ProfileView",
+  "type": "object"
+}

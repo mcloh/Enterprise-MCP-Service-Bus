@@ -130,6 +130,11 @@ services:
       OIDC_JWKS_URL: "${OIDC_JWKS_URL:-}"
       OIDC_ISSUER: "${OIDC_ISSUER:-}"
       OIDC_AUDIENCE: "${OIDC_AUDIENCE:-emcp-gateway}"
+      # EP-07 RFC 8693: empty (default) unless a backend in config/backends/
+      # actually declares credential_mode: token_exchange (the seed backends
+      # don't) -- see .env.example.
+      GATEWAY_TOKEN_EXCHANGE_CLIENT_ID: "${GATEWAY_TOKEN_EXCHANGE_CLIENT_ID:-}"
+      GATEWAY_TOKEN_EXCHANGE_CLIENT_SECRET: "${GATEWAY_TOKEN_EXCHANGE_CLIENT_SECRET:-}"
       # EP-08-T04: empty (default) exports traces to stdout via
       # ConsoleSpanExporter; set to "http://otel-collector:4318" (with
       # `--profile observability`) to export real OTLP traces instead.

@@ -1,6 +1,42 @@
 {
   "realm": "emcp",
   "enabled": true,
+  "clientScopes": [
+    {
+      "name": "aud-sales-domain-service",
+      "protocol": "openid-connect",
+      "attributes": {"include.in.token.scope": "true"},
+      "protocolMappers": [
+        {
+          "name": "audience-mapper",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-audience-mapper",
+          "config": {
+            "included.client.audience": "sales-domain-service",
+            "id.token.claim": "false",
+            "access.token.claim": "true"
+          }
+        }
+      ]
+    },
+    {
+      "name": "aud-finance-domain-service",
+      "protocol": "openid-connect",
+      "attributes": {"include.in.token.scope": "true"},
+      "protocolMappers": [
+        {
+          "name": "audience-mapper",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-audience-mapper",
+          "config": {
+            "included.client.audience": "finance-domain-service",
+            "id.token.claim": "false",
+            "access.token.claim": "true"
+          }
+        }
+      ]
+    }
+  ],
   "clients": [
     {
       "clientId": "sales-read-agent",
@@ -70,6 +106,50 @@
           }
         }
       ]
+    },
+    {
+      "clientId": "gateway-token-exchange",
+      "name": "E-MCP-BUS Gateway's own RFC 8693 exchange client (EP-07)",
+      "enabled": true,
+      "protocol": "openid-connect",
+      "publicClient": false,
+      "standardFlowEnabled": false,
+      "directAccessGrantsEnabled": false,
+      "serviceAccountsEnabled": true,
+      "secret": "dev-gateway-token-exchange-secret",
+      "attributes": {
+        "standard.token.exchange.enabled": "true"
+      },
+      "defaultClientScopes": [
+        "web-origins",
+        "acr",
+        "profile",
+        "roles",
+        "basic",
+        "email",
+        "aud-sales-domain-service",
+        "aud-finance-domain-service"
+      ]
+    },
+    {
+      "clientId": "sales-domain-service",
+      "name": "Audience-only placeholder for the Sales backend (EP-07 RFC 8693 target -- never used to log in)",
+      "enabled": true,
+      "protocol": "openid-connect",
+      "publicClient": false,
+      "standardFlowEnabled": false,
+      "directAccessGrantsEnabled": false,
+      "serviceAccountsEnabled": false
+    },
+    {
+      "clientId": "finance-domain-service",
+      "name": "Audience-only placeholder for the Finance backend (EP-07 RFC 8693 target -- never used to log in)",
+      "enabled": true,
+      "protocol": "openid-connect",
+      "publicClient": false,
+      "standardFlowEnabled": false,
+      "directAccessGrantsEnabled": false,
+      "serviceAccountsEnabled": false
     }
   ]
 }

@@ -19,7 +19,7 @@ format:
 	$(VENV)/bin/ruff check --fix .
 
 typecheck:
-	$(VENV)/bin/mypy src services tests scripts
+	$(VENV)/bin/mypy src services agents tests scripts
 
 # --forked (pytest-forked): one process per test function -- resolves the
 # e2e suite's previously-documented flakiness (RI/README.md), where several

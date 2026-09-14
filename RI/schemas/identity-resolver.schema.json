@@ -1,0 +1,16 @@
+{
+  "properties": {
+    "aliases": {
+      "additionalProperties": {
+        "type": "string"
+      },
+      "title": "Aliases",
+      "type": "object"
+    }
+  },
+  "required": [
+    "aliases"
+  ],
+  "title": "IdentityResolverConfig",
+  "type": "object"
+}
