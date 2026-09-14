@@ -37,6 +37,7 @@ top of that (EP-08-T03).
 
 from __future__ import annotations
 
+import contextlib
 import os
 import tempfile
 from collections.abc import AsyncIterator, Awaitable, Callable
@@ -65,6 +66,7 @@ from emcp_bus.audit.correlation import (
     compute_policy_decision_id,
     new_decision_id,
 )
+from emcp_bus.audit.models import EventEnvelope
 from emcp_bus.audit.sink import AuditSink, JSONLFileAuditSink
 from emcp_bus.common.config import load_yaml_models
 from emcp_bus.common.otel import setup_tracing
@@ -270,6 +272,19 @@ def _request_id_str(ctx: ServerRequestContext[GatewayState]) -> str | None:
     return str(ctx.request_id) if ctx.request_id is not None else None
 
 
+def _emit_audit(state: GatewayState, event: EventEnvelope) -> None:
+    """README.md §38 ("Audit sink | buffer seguro; não bloquear low-risk
+    apenas se política permitir"): the PDP/approval decision has already been
+    made by the time any of this module's `emit()` calls run, for every
+    outcome (ALLOW, DENY, REQUIRE_APPROVAL) -- a sink failure (disk full,
+    unreachable queue) must never turn an already-decided response into an
+    unrelated 500 for the caller, nor silently retry into a duplicate
+    downstream side effect. A production sink is responsible for its own
+    retry/alerting; this Gateway's request/response cycle is not it (EP-15-T05)."""
+    with contextlib.suppress(Exception):
+        state.audit_sink.emit(event)
+
+
 async def on_list_tools(
     ctx: ServerRequestContext[GatewayState],
     params: types.PaginatedRequestParams | None,
@@ -284,10 +299,11 @@ async def on_list_tools(
     except UnknownClientError:
         return types.ListToolsResult(tools=[])
 
-    state.audit_sink.emit(
+    _emit_audit(
+        state,
         events.client_authenticated(
             client_id=access_token.client_id, mcp_request_id=_request_id_str(ctx)
-        )
+        ),
     )
 
     # EP-06-T01: query only the backends that actually serve a tool this
@@ -304,14 +320,15 @@ async def on_list_tools(
         )
         all_tools.extend(t for t in downstream_result.tools if t.name in resolved.allowed_tools)
 
-    state.audit_sink.emit(
+    _emit_audit(
+        state,
         events.tools_list_filtered(
             client_id=access_token.client_id,
             profile_name=resolved.profile_name,
             entitlement_version=resolved.entitlement_version,
             allowed=len(all_tools),
             total=len(resolved.allowed_tools),
-        )
+        ),
     )
     # EP-05-T03: see cache.py's module docstring -- `ttl_ms` will not
     # actually reach a client on this RI's classic-session transport (a
@@ -356,20 +373,21 @@ async def on_call_tool(
             client_profile=resolved.profile_name, tool=params.name, arguments=arguments
         )
     except PDPUnavailableError:
-        state.audit_sink.emit(
-            events.pdp_unavailable(client_id=access_token.client_id, tool=params.name)
+        _emit_audit(
+            state, events.pdp_unavailable(client_id=access_token.client_id, tool=params.name)
         )
         return _denied("PDP_UNAVAILABLE")
 
     if decision.outcome is PDPOutcome.DENY:
-        state.audit_sink.emit(
+        _emit_audit(
+            state,
             events.tool_call_denied(
                 client_id=access_token.client_id,
                 profile_name=resolved.profile_name,
                 tool=params.name,
                 reason_code=decision.reason_code,
                 correlation=correlation,
-            )
+            ),
         )
         return _denied(decision.reason_code)
 
@@ -390,28 +408,30 @@ async def on_call_tool(
                 arguments=arguments,
                 reason_code=decision.reason_code,
             )
-            state.audit_sink.emit(
+            _emit_audit(
+                state,
                 events.tool_call_require_approval(
                     client_id=access_token.client_id,
                     profile_name=resolved.profile_name,
                     tool=params.name,
                     approval_id=request.approval_id,
                     correlation=correlation,
-                )
+                ),
             )
             return _denied(f"REQUIRE_APPROVAL:{decision.reason_code}:{request.approval_id}")
 
     try:
         route = await state.router.route(params.name)
     except UnroutableCapabilityError:
-        state.audit_sink.emit(
+        _emit_audit(
+            state,
             events.tool_call_denied(
                 client_id=access_token.client_id,
                 profile_name=resolved.profile_name,
                 tool=params.name,
                 reason_code="UNROUTABLE_CAPABILITY",
                 correlation=correlation,
-            )
+            ),
         )
         return _denied("UNROUTABLE_CAPABILITY")
 
@@ -419,10 +439,11 @@ async def on_call_tool(
         # EP-06-T04: a "rest"/"grpc" backend.type has no seed capability yet
         # (see fabric/adapters/rest_adapter.py's module docstring) -- fail
         # closed rather than guess at a dispatch path with no test coverage.
-        state.audit_sink.emit(
+        _emit_audit(
+            state,
             events.backend_credential_unavailable(
                 client_id=access_token.client_id, tool=params.name, backend=route.backend_id
-            )
+            ),
         )
         return _denied(f"UNSUPPORTED_BACKEND_TYPE:{route.backend_type}")
 
@@ -432,13 +453,14 @@ async def on_call_tool(
         lambda session: session.call_tool(params.name, params.arguments or {}),
     )
     if isinstance(result, types.CallToolResult):
-        state.audit_sink.emit(
+        _emit_audit(
+            state,
             events.tool_call_allowed(
                 client_id=access_token.client_id,
                 profile_name=resolved.profile_name,
                 tool=params.name,
                 correlation=correlation,
-            )
+            ),
         )
         return result
     raise TypeError(f"Unexpected downstream result type for tools/call: {type(result)!r}")

@@ -46,6 +46,10 @@ dev = [
     # dependency of the RI itself.
     "python-dotenv>=1.2,<2",
     "types-PyYAML>=6.0.12,<7",
+    # EP-15-T01: contract tests validate `structured_content` against
+    # hand-written schemas via `jsonschema` (already a transitive dep of
+    # `mcp[cli]`) -- stubs needed for mypy --strict.
+    "types-jsonschema>=4.26,<5",
 ]
 
 [build-system]

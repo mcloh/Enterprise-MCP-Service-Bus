@@ -10,6 +10,7 @@ queued-and-allowed.
 
 from __future__ import annotations
 
+import threading
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
@@ -26,6 +27,15 @@ class ApprovalService:
     def __init__(self, audit_sink: AuditSink | None = None) -> None:
         self._requests: dict[str, ApprovalRequest] = {}
         self._audit_sink = audit_sink
+        # EP-15-T04 ("approval replay" under concurrency): `check_and_consume`'s
+        # check-then-set (read `.status`, then write it) is not a single
+        # bytecode op, so without this lock two real OS threads racing the
+        # same granted approval could both observe "granted" before either
+        # writes "consumed" -- a double-spend of a single-use grant. Plain
+        # `threading.Lock`, not `asyncio.Lock`: this service is called from
+        # sync code paths (the Gateway's request handler) that may run under
+        # a thread pool, not only from a single asyncio event loop.
+        self._lock = threading.Lock()
 
     def request(
         self,
@@ -86,15 +96,16 @@ class ApprovalService:
         operation_hash = compute_operation_hash(
             client_profile=client_profile, tool=tool, arguments=arguments
         )
-        for approval in self._requests.values():
-            if (
-                approval.operation_hash == operation_hash
-                and approval.status == "granted"
-                and not approval.is_expired()
-            ):
-                approval.status = "consumed"
-                return True
-        return False
+        with self._lock:
+            for approval in self._requests.values():
+                if (
+                    approval.operation_hash == operation_hash
+                    and approval.status == "granted"
+                    and not approval.is_expired()
+                ):
+                    approval.status = "consumed"
+                    return True
+            return False
 
     def _pending_for_operation(self, operation_hash: str) -> ApprovalRequest | None:
         for approval in self._requests.values():

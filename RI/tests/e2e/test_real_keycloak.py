@@ -577,3 +577,187 @@ async def test_two_agents_get_independently_resolved_tokens(
         await token_provider.aclose()
 
     assert sales_token != finance_token
+
+
+# --- EP-13-T06: Modo B -- Service Orchestrator como unico cerebro de NBA/NBO --
+
+
+@pytest.fixture
+async def governed_stack_with_finance_and_real_keycloak(
+    monkeypatch: pytest.MonkeyPatch, opa_url: str, keycloak_url: str
+) -> AsyncIterator[None]:
+    """Same shape as `governed_stack_with_real_keycloak`, plus a real
+    Finance backend -- Modo B's whole point (EP-13-T06) is combining real
+    offerings across *both* domains for the same subject, which needs both
+    backends actually reachable."""
+    import uvicorn
+
+    gateway_port = free_port()
+    sales_port = free_port()
+    finance_port = free_port()
+
+    monkeypatch.setenv("SALES_DOMAIN_URL", f"http://127.0.0.1:{sales_port}/mcp")
+    monkeypatch.setenv("FINANCE_DOMAIN_URL", f"http://127.0.0.1:{finance_port}/mcp")
+    monkeypatch.setenv("OPA_URL", opa_url)
+    monkeypatch.setenv(
+        "OIDC_JWKS_URL", f"{keycloak_url}/realms/{REALM_NAME}/protocol/openid-connect/certs"
+    )
+    monkeypatch.setenv("OIDC_ISSUER", f"{keycloak_url}/realms/{REALM_NAME}")
+    monkeypatch.setenv("OIDC_AUDIENCE", "emcp-gateway")
+    monkeypatch.setenv("SALES_DOMAIN_SERVICE_TOKEN", "test-sales-domain-backend-credential")
+    monkeypatch.setenv("FINANCE_DOMAIN_SERVICE_TOKEN", "test-finance-domain-backend-credential")
+
+    import example_mcp_servers.finance_domain.server as finance_module
+    import example_mcp_servers.sales_domain.server as sales_module
+
+    sales_server = RunningServer(
+        uvicorn.Config(
+            sales_module.server.streamable_http_app(host="127.0.0.1"),
+            host="127.0.0.1",
+            port=sales_port,
+            log_level="warning",
+        )
+    )
+    await sales_server.start()
+
+    finance_server = RunningServer(
+        uvicorn.Config(
+            finance_module.server.streamable_http_app(host="127.0.0.1"),
+            host="127.0.0.1",
+            port=finance_port,
+            log_level="warning",
+        )
+    )
+    await finance_server.start()
+
+    import emcp_bus.gateway.server as gateway_module
+
+    auth_settings, token_verifier = gateway_module.build_auth()
+    gateway_server = RunningServer(
+        uvicorn.Config(
+            gateway_module.build_app(auth_settings, token_verifier, host="127.0.0.1"),
+            host="127.0.0.1",
+            port=gateway_port,
+            log_level="warning",
+        )
+    )
+    await gateway_server.start()
+    set_current_gateway_port(gateway_port)
+
+    try:
+        yield
+    finally:
+        set_current_gateway_port(None)
+        await gateway_server.stop()
+        await finance_server.stop()
+        await sales_server.stop()
+
+
+async def test_mode_b_orchestrator_combines_offerings_and_dispatches_through_the_real_chain(
+    governed_stack_with_finance_and_real_keycloak: None,
+    opa_url: str,
+    keycloak_url: str,
+) -> None:
+    """EP-13-T06 criterion 1: for the same subject eligible for both a Sales
+    offering and a Finance one, the NBA/NBO chosen and the backend dispatched
+    to come from our own `ModeBOrchestrator` (the real journey `StateGraph`,
+    EP-11-T02, run once per client -- never an external Global Supervisor,
+    contrast `test_multi_agent_mode_a.py`). Real OPA, real Keycloak, real
+    Sales+Finance backends, real Gateway/PDP reauthorization on dispatch."""
+    import tempfile
+
+    from example_agent.mode_b_orchestrator_driven.decision_model import (
+        DomainRoutingNBADecisionModel,
+    )
+    from example_agent.mode_b_orchestrator_driven.orchestrator import ModeBOrchestrator
+    from langgraph.checkpoint.memory import InMemorySaver
+
+    from emcp_bus.agent_runtime.dispatcher import (
+        AgentClientCredentials,
+        AgentDispatcher,
+        OIDCAgentTokenProvider,
+    )
+    from emcp_bus.common.config import load_yaml_model, load_yaml_models
+    from emcp_bus.entitlement.manager import EntitlementManager
+    from emcp_bus.entitlement.models import ClientProfile
+    from emcp_bus.identity.models import ClientRegistration
+    from emcp_bus.offering_filter.service import OfferingFilterService
+    from emcp_bus.orchestrator.graph import build_journey_graph
+    from emcp_bus.pdp.client import PDPClient, compute_policy_version
+    from emcp_bus.profile_intelligence.rule_based_provider import RuleBasedProfileProvider
+    from emcp_bus.registry.seed import load_all_capability_manifests, publish_all
+    from emcp_bus.registry.store import RegistryStore
+    from tests.e2e.conftest import _gateway_url
+
+    policies_dir = REPO_ROOT / "config" / "policies"
+    clients_dir = REPO_ROOT / "config" / "clients"
+    pdp = PDPClient(base_url=opa_url, policy_version=compute_policy_version(policies_dir))
+    manager = EntitlementManager(pdp)
+    manager.load_registrations(
+        [load_yaml_model(p, ClientRegistration) for p in sorted(clients_dir.glob("*.yaml"))]
+    )
+    manager.load_profiles(load_yaml_models(clients_dir / "profiles", ClientProfile))
+    await manager.sync_profiles_to_pdp()
+
+    token_endpoint = f"{keycloak_url}/realms/{REALM_NAME}/protocol/openid-connect/token"
+    token_provider = OIDCAgentTokenProvider(
+        {
+            "sales-read-agent": AgentClientCredentials(
+                client_id="sales-read-agent",
+                client_secret=CLIENT_SECRETS["sales-read-agent"],
+                token_endpoint=token_endpoint,
+            ),
+            "finance-payments-agent": AgentClientCredentials(
+                client_id="finance-payments-agent",
+                client_secret=CLIENT_SECRETS["finance-payments-agent"],
+                token_endpoint=token_endpoint,
+            ),
+        }
+    )
+
+    try:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            registry = RegistryStore(Path(tmp_dir) / "registry.db")
+            publish_all(
+                registry, load_all_capability_manifests(REPO_ROOT / "config" / "capabilities")
+            )
+            offering_filter = OfferingFilterService(registry)
+
+            graph = build_journey_graph(
+                profile_provider=RuleBasedProfileProvider(),
+                entitlement_manager=manager,
+                offering_filter=offering_filter,
+                decision_model=DomainRoutingNBADecisionModel(),
+                checkpointer=InMemorySaver(),
+            )
+            dispatcher = AgentDispatcher(gateway_url=_gateway_url(), token_provider=token_provider)
+            orchestrator = ModeBOrchestrator(
+                graph=graph,
+                dispatcher=dispatcher,
+                client_ids=["sales-read-agent", "finance-payments-agent"],
+            )
+
+            decision = orchestrator.decide(subject_id="subject:mode-b-1", channel="app")
+            assert decision is not None
+            # Both domains genuinely contributed a candidate -- proof this
+            # really combined Sales and Finance offerings, not just picked
+            # whichever ran alone.
+            agents_considered = {c.agent for c in decision.considered}
+            assert "sales-read-agent" in agents_considered
+            assert "finance-payments-agent" in agents_considered
+            # The combining rule (a pending Finance item outranks a
+            # discretionary Sales one) picked Finance.
+            assert decision.chosen.action.startswith("finance.")
+            assert decision.chosen.agent == "finance-payments-agent"
+
+            result = await orchestrator.decide_and_dispatch(
+                subject_id="subject:mode-b-1",
+                channel="app",
+                arguments={"invoice_id": "inv-001"},
+            )
+    finally:
+        await token_provider.aclose()
+        await pdp.aclose()
+
+    assert result is not None
+    assert result.status == "allowed"

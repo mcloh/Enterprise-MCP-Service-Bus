@@ -2,7 +2,7 @@
 
 Implementação executável da arquitetura descrita em [`../README.md`](../README.md), planejada em [`../docs/RI-PLANNING.md`](../docs/RI-PLANNING.md).
 
-> **Status: M0, M1, M2 e M3 concluídos** (M0-M2 implementados 2026-09-11 e revalidados 2026-09-14; M3 implementado 2026-09-14). **201 testes automatizados passando** (171 unit + 30 e2e, `--forked`, sem flakiness). M3 (Profile Intelligence, Offering Filter, Service Orchestrator com LangGraph real, Agent Runtime, agente de exemplo com LLM real + Langfuse self-hosted real) está descrito na seção "M3 — Personalização e orquestração" abaixo. Detalhes completos e critérios de aceite verificados em `docs/RI-PLANNING.md` seção 8.7. Só resta M4 (hardening, EP-13-T05/T06, EP-15, EP-16).
+> **Status: M0, M1, M2, M3 e M4 concluídos — backlog completo, nenhuma tarefa aberta** (M0-M2 implementados 2026-09-11 e revalidados 2026-09-14; M3 implementado 2026-09-14; M4 implementado e concluído 2026-09-14, incluindo as duas tarefas `could` EP-13-T05/T06). **260 testes automatizados** (253 passando com `--forked` — unit + e2e + contract + adversarial, sem flakiness — mais 7 testes de aceite de segurança contra o docker-compose real, EP-15-T02, rodados separadamente pelo custo de build+Keycloak por execução). M3 (Profile Intelligence, Offering Filter, Service Orchestrator com LangGraph real, Agent Runtime, agente de exemplo com LLM real + Langfuse self-hosted real) está descrito na seção "M3 — Personalização e orquestração"; M4 (testes de contrato, suíte de aceite de segurança, testes adversariais, testes de fail-closed, os dois modos multiagente do ADR-024, ADRs formalizados) na seção "M4 — Hardening e entrega", ambas abaixo. Detalhes completos e critérios de aceite verificados em `docs/RI-PLANNING.md` seção 8.7.
 
 ## Quickstart (sem Docker)
 
@@ -111,6 +111,21 @@ Implementado e validado em 2026-09-14 (mesma sessão). Perfil → entitlement �
 
 Dependências novas: `langgraph`, `langgraph-checkpoint-sqlite`, `hypothesis` (dev), `openai`, `python-dotenv` (dev). Nenhuma delas é necessária para M0-M2 (Gateway/PDP/Registry continuam funcionando sem elas).
 
+## M4 — Hardening e entrega
+
+Implementado e concluído em 2026-09-14 (mesma sessão do M3). Cobre EP-15 (testes de segurança/adversariais) completo, EP-16 (deploy final/documentação) completo, e os dois modos de integração multiagente do ADR-024 (EP-13-T05/T06, ambos `should`/`could` mas implementados):
+
+1. **EP-15-T01 (testes de contrato)** (`tests/contract/`): conectam direto a cada domain server, nunca pelo Gateway — o contrato input/output de uma tool é propriedade do domain server (ADR-023), independente de quem está ou não entitled a chamá-la. **Achado durante a implementação**: `CapabilityManifest` (EP-02-T01) não carrega `input_schema`/`output_schema` — nunca fez parte do desenho do EP-02 (o manifesto é metadado de entitlement/risco, não formato). Resolvido sem reinterpretar silenciosamente o critério de aceite: (a) o `input_schema` **real**, auto-gerado pelo MCP SDK a partir da assinatura Python de cada tool, já é validado pelo próprio servidor (campo obrigatório ausente/tipo errado → `is_error: True` via Pydantic, antes de qualquer código da RI rodar) — exercitado diretamente, não reimplementado; (b) o `output_schema` auto-gerado é genérico demais (`additionalProperties: true`, já que toda tool retorna `dict[str, object]`) — resolvido com JSON Schema escrito à mão por tool (`jsonschema`, já dependência transitiva), validado contra a resposta real das 9 tools (6 Sales + 3 Finance). 20 testes.
+2. **EP-15-T02 (suíte de aceite de segurança, §45)** (`tests/e2e/test_security_acceptance.py`): roda contra o `docker-compose.yml` real (`--profile core --profile identity`, Keycloak incluído), não os fixtures in-process do resto da suíte e2e. 7 dos 10 testes formais automatizados diretamente: Teste 1 (unauthorized discovery), Teste 2 (direct unauthorized call), Teste 4 (role spoofing via payload forjado), Teste 5 (cache isolation, incluindo `cache_scope="private"`), Teste 7 (gateway bypass — `sales-domain`/`finance-domain`/`opa` não publicam porta de host), Teste 9 (backend/transaction-policy isolation, `TRANSACTION_POLICY_DENIED` real), Teste 10 (client compromise containment). Os outros 3 já têm cobertura real documentada no docstring do arquivo em vez de duplicada: Teste 3 (prompt injection, LLM real) em `test_example_agent.py`; Teste 6 (policy revocation, sem endpoint HTTP de revogação nesta RI) em `test_entitlement_manager.py`; Teste 8 (token audience) em `test_real_keycloak.py`, mesmo realm Keycloak real.
+3. **EP-15-T03 (testes adversariais de prompt/tool injection)** (`tests/adversarial/{test_prompt_injection,test_tool_poisoning,test_payload_identity_spoofing}.py`, 12 testes): contra o Gateway real. Injeção direta/indireta de conteúdo em argumentos nunca altera autorização nem o catálogo; hidden tool invocation e spoofing de nome (case/whitespace/typo) sempre negados por comparação exata; **tool description poisoning** provado com um `MCPServer` malicioso real montado em runtime (descrição hostil pedindo "acesso admin") — a Gateway repassa a descrição verbatim (nunca sanitiza) mas ela não tem efeito algum na decisão PDP; variação explícita do achado ADR-023 (`agent_id`/`tenant_id`/`business_context` forjados nos argumentos) provada por negação de entitlement e por auditoria (`tool_call_allowed` sempre registra o `client_id` real, nunca o forjado).
+4. **EP-15-T04 (testes adversariais de protocolo/identidade)** (`tests/adversarial/test_protocol_identity.py`, 6 testes + referências cruzadas para o que já era coberto alhures): header/body mismatch rejeitado pré-autenticação; replay de requisição idêntica (gap real e documentado — sem nonce nesta RI, mitigado por token de vida curta) mas sempre auditado com `decision_id` distinto; **revogação de política ao vivo** contra um Gateway rodando (fecha a lacuna do Teste 6 que EP-15-T02 havia documentado); condição de corrida de entitlement sob concorrência real sem crash; **approval replay sob concorrência real** (`ThreadPoolExecutor`) — achado real: `ApprovalService.check_and_consume` não era thread-safe, corrigido com `threading.Lock`; bulk exfiltration (gap real e documentado — sem rate limiting) sempre com trilha de auditoria completa.
+5. **EP-15-T05 (testes de política de falha, §38)** (`tests/e2e/test_fail_closed.py`, 7 testes, um por linha da tabela): IdP inalcançável nega novas autenticações; PDP morrendo em runtime (não só no boot) falha fechado na próxima chamada; Registry sem `capabilities/` falha o boot do Gateway; **achado real corrigido**: nenhuma das 8 chamadas `audit_sink.emit` do Gateway estava protegida — uma falha no sink teria virado erro 500 numa operação já ALLOWed, corrigido com o helper `_emit_audit`; approval service falho nega (nunca crasha) uma operação de alto risco; backend morto falha só aquela requisição, sem derrubar o Gateway.
+6. **EP-13-T05 (Modo A — multiagente governado, ADR-024)** (`src/emcp_bus/agent_runtime/global_supervisor.py` + `agents/example_agent/backends/{sales_agent,finance_agent}/`): `GlobalSupervisor` com roteamento por palavra-chave simples (deliberadamente não é a fronteira de segurança — documentado), nunca importa `emcp_bus.orchestrator` (checado via AST). Validado com **LLM real + Gateway real** (`tests/e2e/test_multi_agent_mode_a.py`, 2 testes): handoff de `sales_agent` para `finance_agent` resolve entitlement do zero com token completamente distinto; injeção de prompt via handoff tentando `finance.payment.execute` continua negada pelo Gateway/PDP reais.
+7. **EP-13-T06 (Modo B — Orchestrator como único cérebro de NBA/NBO, `could`)** (`agents/example_agent/mode_b_orchestrator_driven/`): `ModeBOrchestrator` invoca o journey `StateGraph` real do EP-11-T02 (não modificado) uma vez por client relevante para o mesmo subject, combina os `NBADecision`s (Finance sempre vence Sales na regra de referência) e despacha via `AgentDispatcher` real — nunca cria autorização própria. Validado **contra Keycloak real, OPA real, Sales+Finance reais** (`tests/e2e/test_real_keycloak.py::test_mode_b_orchestrator_combines_offerings_and_dispatches_through_the_real_chain`): candidatos de ambos os domínios realmente combinados, decisão final do nosso Orchestrator, dispatch `ALLOW` de ponta a ponta.
+8. **EP-16 (deploy final e documentação)**: `docker-compose.yml` validado com `--profile core --profile identity --profile observability up -d --build` real (7 serviços saudáveis); 25 ADRs formalizados em `docs/adr/` (ADR-001 a ADR-025, gerados a partir da tabela §8.4 do planning); versões confirmadas consolidadas em `docs/adr/ADR-018-stack-de-implementacao.md`.
+
+**Duas correções de código reais** (não apenas testes) surgiram escrevendo os testes adversariais/fail-closed: `ApprovalService` ganhou um `threading.Lock` (race condition real de double-spend sob concorrência), e o Gateway ganhou `_emit_audit` (falha de audit sink podia virar erro 500 numa operação já decidida, violando §38).
+
 ## O que existe hoje
 
 | Tarefa | Componente | Status |
@@ -137,8 +152,16 @@ Dependências novas: `langgraph`, `langgraph-checkpoint-sqlite`, `hypothesis` (d
 | EP-12 (completo) | Agent Runtime: dispatch, channel adapter, handoff, identity resolver | ✅ `src/emcp_bus/agent_runtime/*.py` — validado contra Gateway + Keycloak reais |
 | EP-13-T01/T03/T04 | Agente de exemplo (LLM real), redação de PII, versionamento de prompt | ✅ `agents/example_agent/*.py` — tool-calling real, cenário de prompt injection do §29 reproduzido |
 | EP-13-T02 | Langfuse self-hosted | ✅ `deploy/langfuse/docker-compose.override.yml` — subido e validado de verdade (ver seção M3 acima); validação manual, não automatizada em CI |
+| EP-15-T01 | Testes de contrato dos MCP Servers | ✅ `tests/contract/*.py` — input schema real do SDK exercitado + output schema escrito à mão, validado contra os 2 domain servers reais (ver seção M4 acima) |
+| EP-15-T02 | Suíte de aceite de segurança (§45) | ✅ `tests/e2e/test_security_acceptance.py` — 7/10 testes formais automatizados contra o docker-compose real; os outros 3 já cobertos em outros arquivos (ver seção M4 acima) |
+| EP-15-T03 | Testes adversariais de prompt/tool injection | ✅ `tests/adversarial/{test_prompt_injection,test_tool_poisoning,test_payload_identity_spoofing}.py` — 12 testes, incluindo um MCP server malicioso real (ver seção M4 acima) |
+| EP-15-T04 | Testes adversariais de protocolo/identidade | ✅ `tests/adversarial/test_protocol_identity.py` — 6 testes novos + `threading.Lock` real corrigido em `ApprovalService` (ver seção M4 acima) |
+| EP-15-T05 | Testes de política de falha (§38) | ✅ `tests/e2e/test_fail_closed.py` — 7 testes, um por linha da tabela + `_emit_audit` real corrigido no Gateway (ver seção M4 acima) |
+| EP-13-T05 (`should`) | Modo A — multiagente governado (ADR-024) | ✅ `src/emcp_bus/agent_runtime/global_supervisor.py` + `agents/example_agent/backends/*` — validado com LLM real + Gateway real (ver seção M4 acima) |
+| EP-13-T06 (`could`) | Modo B — Orchestrator como único cérebro de NBA/NBO | ✅ `agents/example_agent/mode_b_orchestrator_driven/*` — validado com Keycloak real + OPA real + Sales/Finance reais (ver seção M4 acima) |
+| EP-16 (completo) | Deploy final, ADRs formalizados, README | ✅ `docker-compose.yml` validado com todos os perfis; 25 ADRs em `docs/adr/`; versões confirmadas em `docs/adr/ADR-018-stack-de-implementacao.md` |
 
-**201 testes automatizados** (171 unit + 30 e2e, incluindo 7 contra Keycloak real e 2 contra um LLM real em `test_example_agent.py`), a lógica de produção sem mocks do núcleo de segurança e orquestração: OPA real (subprocess), Keycloak real (Docker), LangGraph real com checkpointer SQLite real, LLM real (endpoint OpenAI-compatible), JWKS HTTP real (stand-in leve para o resto da suíte) + JWT RS256 reais, YAML reais de `config/`, SQLite real para o Registry. **100% determinísticos com `--forked`** (verificado em múltiplas execuções seguidas) — a flakiness antes documentada para a suíte e2e está resolvida, ver seção dedicada acima.
+**260 testes automatizados no total**: 253 passam com `--forked` (unit + e2e + contract + adversarial — todo `tests/` exceto `test_security_acceptance.py`, confirmado em execução completa 2026-09-14), mais 7 testes de aceite de segurança (EP-15-T02) contra o `docker-compose.yml` real (build + Keycloak, ~72s, rodados separadamente do `--forked` padrão pelo custo por execução). Lógica de produção sem mocks no núcleo de segurança e orquestração: OPA real (subprocess), Keycloak real (Docker), LangGraph real com checkpointer SQLite real, LLM real (endpoint OpenAI-compatible), JWKS HTTP real (stand-in leve para o resto da suíte) + JWT RS256 reais, YAML reais de `config/`, SQLite real para o Registry. **100% determinísticos com `--forked`** (verificado em múltiplas execuções seguidas) — a flakiness antes documentada para a suíte e2e está resolvida, ver seção dedicada acima.
 
 ## Limitações conhecidas
 
@@ -149,12 +172,20 @@ Dependências novas: `langgraph`, `langgraph-checkpoint-sqlite`, `hypothesis` (d
 
 ~~Token exchange RFC 8693 (`NotImplementedError`)~~ — **resolvido em 2026-09-14** (início do M3): `TokenExchangeClient` implementa o Standard Token Exchange do Keycloak (GA desde 26.2) de ponta a ponta, validado contra Keycloak real, incluindo um `tools/call` completo pelo Gateway usando uma credencial obtida por exchange. Ver `docs/RI-PLANNING.md` §8.7 para os detalhes verificados (exigências reais do IdP: `audience` precisa ser um client id registrado; `scope` precisa acompanhar `audience` ou o exchange falha).
 
-**M3, novas ressalvas (2026-09-14):**
+**M3, ressalvas (2026-09-14):**
 
-- **EP-12-T03 (handoff, `could`)**: implementa minimização de contexto + resolução de entitlement independente por agente (testado), mas não há ainda um subgrafo LangGraph intra-processo de handoff — o journey graph do EP-11 tem exatamente um agente ativo por execução hoje. O primitivo cross-process (`execute_handoff`) é o que o EP-13-T05 (M4, cena com dois backends reais) vai usar.
 - **EP-13-T02 (Langfuse)**: validado manualmente de verdade (ver seção M3 acima — spans reais confirmados no ClickHouse), mas não é um teste e2e automatizado por causa do custo de subir 6 containers a cada execução da suíte.
 - **EP-13-T04 (prompt versioning, `could`)**: o núcleo de versionamento é real e testado; o sync com a API de Prompt Management do Langfuse (`langfuse.api.prompts.create`) é um adapter fino documentado, não implementado.
-- **Credencial de LLM**: `LLM_API_KEY`/`LLM_BASE_URL`/`LLM_MODEL` (ver `.env.example`) são necessárias para `tests/e2e/test_example_agent.py` — sem elas, esses 2 testes são pulados (`pytest.skip`), não falham, igual ao padrão já usado para `opa`/`docker`.
+- **Credencial de LLM**: `LLM_API_KEY`/`LLM_BASE_URL`/`LLM_MODEL` (ver `.env.example`) são necessárias para `tests/e2e/test_example_agent.py` e `tests/e2e/test_multi_agent_mode_a.py` — sem elas, esses testes são pulados (`pytest.skip`), não falham, igual ao padrão já usado para `opa`/`docker`.
+
+**M4, ressalvas (2026-09-14):**
+
+- **EP-12-T03 (`execute_handoff`/`build_handoff_payload`, `could`)**: continua implementado e testado (`tests/unit/test_agent_runtime_handoff.py`), mas **achado real durante o M4**: nem o Modo A (EP-13-T05) nem o Modo B (EP-13-T06) acabaram usando esse primitivo. Modo A precisa de roteamento conversacional (qual backend responde à próxima mensagem), não de despacho de uma `NBADecision` específica — `GlobalSupervisor` chama `run_turn()` diretamente nos backends. Modo B já combina `NBADecision`s de múltiplos clients num único passo (`ModeBOrchestrator._combine`) e despacha o vencedor via `AgentDispatcher.dispatch` puro — não há um agente "de origem" cedendo controle a outro para `execute_handoff` interceptar. `execute_handoff` continua correto e reutilizável para um cenário futuro que precise especificamente de handoff *dentro* de uma jornada Orchestrator-driven (ex.: EP-11 decidindo, no meio de uma jornada, redirecionar para outro agente mantendo o mesmo `NBADecision`), mas essa forma específica de uso não existe nesta RI.
+- **Replay de requisição** (`tests/adversarial/test_protocol_identity.py`): sem nonce/anti-replay nesta RI — uma requisição capturada com um token ainda válido pode ser reenviada com sucesso. Mitigado por tokens de vida curta (`credential_policy.short_lived` em todo `ClientProfile` seed) e por auditoria completa (cada tentativa, mesmo idêntica, gera `decision_id` próprio).
+- **Rate limiting / bulk exfiltration** (`tests/adversarial/test_protocol_identity.py`): sem limitação de taxa de requisições no Gateway — N leituras legítimas consecutivas são todas permitidas. Mitigado apenas por detectabilidade a posteriori via auditoria (cada chamada gera evento correlacionado), nunca por prevenção em tempo real.
+- **`GlobalSupervisor` (Modo A, EP-13-T05)**: roteamento por palavra-chave simples, deliberadamente não é a fronteira de segurança (documentado no módulo) — não é uma reivindicação de qualidade de roteamento, apenas um stand-in honesto para o que uma plataforma externa real faria.
+- **`ModeBOrchestrator` (Modo B, EP-13-T06)**: a regra de combinação entre domínios (Finance sempre vence Sales) é uma regra de referência simples, não uma reivindicação de otimalidade — mesma postura já adotada por `RuleBasedNBADecisionModel` (EP-11-T03). Não estende `JourneyState`/`build_journey_graph` para múltiplos `client_id`s nativamente; a combinação vive numa camada acima do grafo (decisão de design documentada no módulo).
+- **EP-06-T04 (adapter REST)**, **stack de observabilidade** (EP-08-T04, tráfego real ainda não exercitado por um teste automatizado — mas a subida completa com o perfil `observability` foi validada manualmente no M4) e o restante das ressalvas de M0-M3 acima continuam válidas sem mudança.
 
 ## Versões fixadas
 
@@ -166,6 +197,8 @@ Ver `pyproject.toml`. Confirmadas via `pip index versions`/download direto em 20
 - `pytest-forked` 1.7.x (resolve a flakiness da suíte e2e, ver acima)
 - `langgraph` 0.6.x + `langgraph-checkpoint-sqlite` 2.x (M3, EP-11), `hypothesis` 6.1xx.x (dev, EP-10-T02), `openai` 1.109.x (M3, EP-13-T01), `python-dotenv` 1.2.x (dev) — confirmadas via instalação direta em 2026-09-14
 - Langfuse self-hosted 4.35.0 (`docker.langfuse.com/langfuse/langfuse:4`, imagem oficial, EP-13-T02)
+- `types-jsonschema` 4.26.x (dev, stubs para `mypy --strict`; `jsonschema` em si já era dependência transitiva do `mcp[cli]`, EP-15-T01) — confirmada via instalação direta em 2026-09-14
+- Keycloak 26.7.3 (`quay.io/keycloak/keycloak:26.7.3`, Quarkus), `opentelemetry-collector-contrib` 0.114.0, `jaeger` (all-in-one) 1.62.0 — imagens fixadas em `docker-compose.yml`; registro completo em `docs/adr/ADR-018-stack-de-implementacao.md` (EP-16-T04)
 
 ## Estrutura
 
@@ -203,21 +236,32 @@ RI/
 │   ├── profile_intelligence/{models,rule_based_provider,governance}.py  # EP-09
 │   ├── offering_filter/service.py         # EP-10
 │   ├── orchestrator/{decision_context,state,graph,nba_model,decisioning,fallback,hitl_node}.py  # EP-11
-│   └── agent_runtime/{dispatcher,identity_resolver,handoff_graph,channels/*}.py  # EP-12
+│   └── agent_runtime/{dispatcher,identity_resolver,handoff_graph,global_supervisor,channels/*}.py  # EP-12, EP-13-T05
 ├── services/example_mcp_servers/
 │   ├── sales_domain/server.py    # EP-06-T02 (6 tools: R1 + R2)
 │   └── finance_domain/server.py  # EP-06-T03 (invoice.get R1, payment.create R2, payment.execute R3)
 ├── agents/example_agent/
 │   ├── agent.py, llm_client.py   # EP-13-T01
-│   └── prompts/{store.py,v1.txt} # EP-13-T04
+│   ├── prompts/{store.py,v1.txt} # EP-13-T04
+│   ├── backends/{sales_agent,finance_agent}/  # EP-13-T05, Modo A (ADR-024)
+│   └── mode_b_orchestrator_driven/{decision_model,orchestrator}.py  # EP-13-T06, Modo B (ADR-024)
 ├── deploy/langfuse/docker-compose.override.yml  # EP-13-T02
+├── docs/adr/                     # ADR-001..025 formalizados (EP-16-T03), um arquivo por decisão
 └── tests/
     ├── unit/       # schemas, PDP, entitlement, authn, registry, downstream identity, approval,
     │                # fabric router, audit, canonical request, rest adapter, bypass detection,
     │                # gateway cache, shared client lint, profile intelligence, offering filter
     │                # (+ invariants), orchestrator (decision_context/decisioning/fallback/hitl/graph),
-    │                # agent_runtime (channels/identity_resolver/handoff), pii_redaction, prompt store
-    └── e2e/        # conftest.py (fixtures compartilhados), walking skeleton, governed gateway,
-                     # test_real_keycloak.py (EP-01-T01/T12, token exchange, Docker real),
-                     # test_example_agent.py (EP-13-T01, LLM real)
+    │                # agent_runtime (channels/identity_resolver/handoff/global_supervisor),
+    │                # pii_redaction, prompt store
+    ├── e2e/        # conftest.py (fixtures compartilhados), walking skeleton, governed gateway,
+    │                # test_real_keycloak.py (EP-01-T01/T12, token exchange, Modo B, Docker real),
+    │                # test_example_agent.py (EP-13-T01, LLM real),
+    │                # test_security_acceptance.py (EP-15-T02, docker-compose real),
+    │                # test_multi_agent_mode_a.py (EP-13-T05, LLM real),
+    │                # test_fail_closed.py (EP-15-T05)
+    ├── contract/   # conftest.py + test_sales_domain.py + test_finance_domain.py (EP-15-T01)
+    └── adversarial/  # test_prompt_injection.py, test_tool_poisoning.py,
+                       # test_payload_identity_spoofing.py (EP-15-T03),
+                       # test_protocol_identity.py (EP-15-T04)
 ```

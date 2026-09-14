@@ -61,6 +61,14 @@ def _gateway_url() -> str:
     return f"http://127.0.0.1:{_current_gateway_port}/mcp"
 
 
+def gateway_url() -> str:
+    """Public accessor for `tests/adversarial/`: tests that need to send a raw
+    (non-`ClientSession`) HTTP request against the currently running
+    `governed_stack` gateway -- e.g. a header/body mismatch that must be
+    rejected before any MCP session handshake."""
+    return _gateway_url()
+
+
 def free_port() -> int:
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
         s.bind(("127.0.0.1", 0))
