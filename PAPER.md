@@ -8,6 +8,7 @@
 | **Domínio** | Integração corporativa, identidade e autorização para sistemas agênticos sobre Model Context Protocol (MCP) |
 | **Natureza** | Arquitetura de referência + implementação de referência executável, mantidas neste repositório |
 | **Público-alvo** | Arquitetos de segurança e integração, engenharia de plataforma, liderança técnica e executiva |
+| **Repositório** | [github.com/mcloh/Enterprise-MCP-Service-Bus](https://github.com/mcloh/Enterprise-MCP-Service-Bus) |
 
 ---
 
@@ -887,3 +888,7 @@ A mudança de perspectiva que esta arquitetura propõe pode ser resumida em uma 
 Essa inversão — mover a decisão de autorização para antes e para fora da camada onde o modelo raciocina — é o que permite usar MCP como uma interface corporativa compartilhada, acessível a múltiplos agentes e casos de uso, sem transferir a raiz de confiança da organização para um componente probabilístico. Ao redor desse núcleo, a arquitetura organiza publicação governada de capacidades, personalização substituível, orquestração de jornada e execução omnicanal — cada uma dessas camadas plugável e evolutiva, nenhuma delas com autoridade para alterar o teto de autorização estabelecido pela identidade do client.
 
 O objetivo final não é tornar o agente confiável. É tornar seguro o fato de que ele não é — e a implementação de referência mantida neste repositório existe precisamente para demonstrar que essa garantia é possível de construir, testar e operar como software real, não apenas descrever como princípio de arquitetura.
+
+---
+
+Repositório: [github.com/mcloh/Enterprise-MCP-Service-Bus](https://github.com/mcloh/Enterprise-MCP-Service-Bus)
