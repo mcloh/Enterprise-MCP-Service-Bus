@@ -3,7 +3,7 @@
 Adopts the IC/NOC/GRL taxonomy from the Agent Platform OCI reference
 (ADR-022, docs/research/hoshikawa-agent-platform-oci.md) as the
 `EventEnvelope.category` classification, rather than inventing a parallel
-one: IC (Interação de Cliente/negócio-jornada), NOC (operacional/erro), GRL
+one: IC (Indicador de Controle/negócio-jornada), NOC (operacional/erro), GRL
 (guardrail/governança). `decision_id`/`policy_decision_id`/`entitlement_version`
 (ADR-017, EP-08-T03) travel as first-class correlation fields on every event,
 not as opaque payload keys, so a consumer can join events across the chain
@@ -27,7 +27,7 @@ class EventCategory(StrEnum):
     """README.md §27 event classes, mapped onto the Hoshikawa IC/NOC/GRL vocabulary."""
 
     IC = "ic"
-    """Interação de Cliente / negócio-jornada: the call progressed normally
+    """Indicador de Controle / negócio-jornada: the call progressed normally
     (e.g. `client_authenticated`, `tool_call_allowed`)."""
 
     NOC = "noc"

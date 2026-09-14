@@ -3,9 +3,9 @@
 Read-only tools (risk tier R1, see README.md §17): customer.search,
 customer.get, order.get, inventory.check. Write tools (R2): quote.create,
 quote.update. Backed by static mock data -- this server is deliberately
-"dumb": it never authorizes anything (see `docs/adr/ADR-023-autorizacao-nunca-vem-do-payload.md`).
-Authorization happens exclusively upstream, in the Gateway/PEP (EP-05)
-before a call ever reaches this process.
+"dumb": it never authorizes anything (see
+`docs/adr/ADR-023-autorizacao-nunca-vem-do-payload.md`). Authorization happens
+exclusively upstream, in the Gateway/PEP (EP-05) before a call ever reaches this process.
 
 Run directly for local development:
 

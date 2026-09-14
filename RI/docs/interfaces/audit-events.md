@@ -48,7 +48,7 @@ em vez de uma taxonomia própria:
 
 | Categoria | Significado | Exemplos de `event_type` |
 |---|---|---|
-| `ic` | Interação de Cliente / negócio-jornada — a chamada progrediu normalmente | `client_authenticated`, `tool_call_allowed`, `agent_turn_completed`, `nba_recalculated` |
+| `ic` | Indicador de Controle / negócio-jornada — a chamada progrediu normalmente | `client_authenticated`, `tool_call_allowed`, `agent_turn_completed`, `nba_recalculated` |
 | `noc` | Operacional/erro — falha de disponibilidade, não uma decisão de política | `pdp_unavailable`, `backend_credential_unavailable` |
 | `grl` | Guardrail/governança — uma fronteira de entitlement/política foi aplicada ou testada | `tool_call_denied`, `tools_list_filtered`, `tool_call_require_approval`, `approval_granted`, `bypass_attempt_detected`, `journey_ended_after_denial` |
 

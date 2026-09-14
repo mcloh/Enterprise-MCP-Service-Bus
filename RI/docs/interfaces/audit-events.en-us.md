@@ -48,7 +48,7 @@ rather than a taxonomy of its own:
 
 | Category | Meaning | `event_type` examples |
 |---|---|---|
-| `ic` | Customer Interaction / business journey — the call progressed normally | `client_authenticated`, `tool_call_allowed`, `agent_turn_completed`, `nba_recalculated` |
+| `ic` | Control Indicator / business journey — the call progressed normally | `client_authenticated`, `tool_call_allowed`, `agent_turn_completed`, `nba_recalculated` |
 | `noc` | Operational/error — an availability failure, not a policy decision | `pdp_unavailable`, `backend_credential_unavailable` |
 | `grl` | Guardrail/governance — an entitlement/policy boundary was applied or tested | `tool_call_denied`, `tools_list_filtered`, `tool_call_require_approval`, `approval_granted`, `bypass_attempt_detected`, `journey_ended_after_denial` |
 

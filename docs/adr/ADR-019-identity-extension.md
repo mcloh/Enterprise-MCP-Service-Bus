@@ -1,10 +1,9 @@
 # ADR-019: MCP Client identity -- production extension point (mTLS / workload identity)
 
 **Status:** Documented (spike), not implemented in the RI (EP-01-T04, `could`).
-**Related:** this ADR is the canonical record of this decision -- no longer generated from
-`docs/RI-PLANNING.md` (removed from the repository after M4 completed; history preserved in
-git). See `RI/docs/AS-BUILT.md` and `RI/docs/interfaces/identity-oidc.md` for implementation and
-validation context. Also relevant: README.md §19, RF-02, Axiom 2.
+**Related:** this ADR is the canonical record of this decision. See `RI/docs/AS-BUILT.md` and
+`RI/docs/interfaces/identity-oidc.md` for implementation and validation context. Also relevant:
+README.md §19, RF-02, Axiom 2.
 
 ## Context
 

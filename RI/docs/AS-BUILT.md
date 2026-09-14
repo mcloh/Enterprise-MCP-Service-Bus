@@ -9,10 +9,9 @@ Público-alvo: quem vai **integrar com ou estender** a RI. Para quem vai **rodar
 [`How-To.md`](How-To.md). Para quem vai **avaliar/adaptar** a RI para um cenário real, ver
 [`Assumptions.md`](Assumptions.md) e [`Production-Recommendations.md`](Production-Recommendations.md).
 
-Este documento sucede o backlog de planejamento `docs/RI-PLANNING.md` (removido do
-repositório após a conclusão do marco M4, com histórico preservado no git) — a informação
-factual desse backlog que ainda é relevante para quem usa o produto acabado foi migrada para
-cá, para `Assumptions.md` e para `Production-Recommendations.md`.
+Decisões arquiteturais individuais estão registradas em [`../../docs/adr/`](../../docs/adr/)
+(ADR-001 a ADR-025); as premissas e razões por trás delas estão sintetizadas em
+[`Assumptions.md`](Assumptions.md).
 
 ## Status
 
@@ -29,8 +28,8 @@ real para o Registry.
 ## Índice de épicos
 
 Cada `EP-XX-TXX` que aparece em comentários/docstrings do código-fonte referencia um destes
-épicos. Esta tabela é o que substitui `docs/RI-PLANNING.md` §8.6 como fonte de contexto para
-essas referências.
+épicos. Esta tabela é a referência autoritativa para essas siglas — consulte-a sempre que um
+comentário/docstring citar um `EP-XX-TXX` sem contexto adicional.
 
 | Épico | Título | Módulo/teste principal |
 |---|---|---|
@@ -164,7 +163,7 @@ backend. 7 testes (4 unit com `httpx.MockTransport`, 3 e2e contra Keycloak real,
 ### Auditoria, correlação e observabilidade (EP-08)
 
 **Responsabilidade:** `audit/models.py` define `EventEnvelope` com uma taxonomia de 3 categorias
-adotada da referência Agent Platform OCI (ADR-022): **IC** (Interação de Cliente/negócio-jornada,
+adotada da referência Agent Platform OCI (ADR-022): **IC** (Indicador de Controle/negócio-jornada,
 ex. `client_authenticated`, `tool_call_allowed`), **NOC** (operacional/erro de disponibilidade,
 ex. `pdp_unavailable`), **GRL** (guardrail/governança, ex. `tool_call_denied`,
 `tools_list_filtered`, `bypass_attempt_detected`). Todo evento sanitiza recursivamente qualquer

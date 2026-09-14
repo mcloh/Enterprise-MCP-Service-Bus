@@ -11,10 +11,9 @@ the RI, see [`How-To.md`](How-To.md). For those who will **evaluate/adapt** the 
 scenario, see [`Assumptions.md`](Assumptions.md) and
 [`Production-Recommendations.md`](Production-Recommendations.md).
 
-This document succeeds the planning backlog `docs/RI-PLANNING.md` (removed from the repository
-after the completion of milestone M4, with history preserved in git) — the factual information
-from that backlog that is still relevant to whoever uses the finished product was migrated here,
-to `Assumptions.md`, and to `Production-Recommendations.md`.
+Individual architectural decisions are recorded in [`../../docs/adr/`](../../docs/adr/)
+(ADR-001 through ADR-025); the assumptions and reasoning behind them are synthesized in
+[`Assumptions.md`](Assumptions.md).
 
 ## Status
 
@@ -31,8 +30,8 @@ Registry.
 ## Epic index
 
 Every `EP-XX-TXX` that appears in comments/docstrings in the source code references one of these
-epics. This table is what replaces `docs/RI-PLANNING.md` §8.6 as the context source for those
-references.
+epics. This table is the authoritative reference for these labels — consult it whenever a
+comment/docstring cites an `EP-XX-TXX` without further context.
 
 | Epic | Title | Main module/test |
 |---|---|---|
@@ -167,7 +166,7 @@ exchange).
 ### Auditing, correlation and observability (EP-08)
 
 **Responsibility:** `audit/models.py` defines `EventEnvelope` with a 3-category taxonomy adopted
-from the Agent Platform OCI reference (ADR-022): **IC** (Client Interaction/business journey,
+from the Agent Platform OCI reference (ADR-022): **IC** (Control Indicator/business journey,
 e.g. `client_authenticated`, `tool_call_allowed`), **NOC** (operational/availability error, e.g.
 `pdp_unavailable`), **GRL** (guardrail/governance, e.g. `tool_call_denied`,
 `tools_list_filtered`, `bypass_attempt_detected`). Every event recursively sanitizes any key
