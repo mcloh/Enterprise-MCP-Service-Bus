@@ -24,7 +24,7 @@ point being tested.
 and adherent to open standards** (OAuth 2.1/OIDC, Rego), not out of arbitrary preference. This
 resolves two gaps that the reference architecture left open (`README.md` §48, questions
 1 and 3) with a definitive technical decision, not an assumption — they were never revisited
-throughout the implementation. See `docs/adr/ADR-019-identity-extension.md`,
+throughout the implementation. See `docs/adr/ADR-019-extensao-de-identidade.md`,
 `docs/adr/ADR-025-engine-do-pdp.md`.
 
 **We rejected** a custom PDP engine in Python (more control, but reinvents policy evaluation

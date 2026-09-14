@@ -75,7 +75,7 @@ HTTP local mais leve como stand-in para o resto da suíte e2e (válido para a l�
 não para a integração de protocolo real com o IdP).
 
 **Extensão de produção documentada, não implementada:** mTLS/workload identity —
-`docs/adr/ADR-019-identity-extension.md`.
+`docs/adr/ADR-019-extensao-de-identidade.md`.
 
 ### PDP / Policy Engine (EP-03)
 

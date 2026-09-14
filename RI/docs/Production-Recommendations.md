@@ -13,7 +13,7 @@ Público-alvo: quem vai **avaliar ou adaptar** esta RI para um cenário real.
 Um IdP real em alta disponibilidade (cluster Keycloak, ou equivalente gerenciado), não a
 instância única do `docker-compose.yml`. A extensão para mTLS/workload identity — cobrindo casos
 em que `client_credentials` não é forte o suficiente (ex.: workloads em malha de serviço) — já
-está documentada como ponto de extensão em `docs/adr/ADR-019-identity-extension.md`; produção
+está documentada como ponto de extensão em `docs/adr/ADR-019-extensao-de-identidade.md`; produção
 implementaria essa extensão, não reinventaria o middleware de autenticação do zero.
 
 ## PDP

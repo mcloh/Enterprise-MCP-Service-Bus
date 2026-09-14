@@ -2672,7 +2672,7 @@ The architectural vision is consistent, but a concrete implementation needs to d
    - workload identity?
    - mTLS?
    - cloud IAM?
-   - → **Decision adopted in the RI**: OAuth 2.1 `client_credentials` via Keycloak, with mTLS/workload identity documented as a production extension not implemented (`docs/adr/ADR-019-identity-extension.md`).
+   - → **Decision adopted in the RI**: OAuth 2.1 `client_credentials` via Keycloak, with mTLS/workload identity documented as a production extension not implemented (`docs/adr/ADR-019-extensao-de-identidade.md`).
 
 2. **What will be the granularity of client profiles?**
    - domain?

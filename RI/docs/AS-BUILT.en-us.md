@@ -77,7 +77,7 @@ local JWKS HTTP server as a stand-in for the rest of the e2e suite (valid for va
 not for real protocol integration with the IdP).
 
 **Production extension documented, not implemented:** mTLS/workload identity —
-`docs/adr/ADR-019-identity-extension.md`.
+`docs/adr/ADR-019-extensao-de-identidade.md`.
 
 ### PDP / Policy Engine (EP-03)
 
